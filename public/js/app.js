@@ -108,11 +108,27 @@ class SamsonApp {
 
   // ── Base events (lang toggle, recover, steps indicator taps) ──
   _bindBaseEvents() {
-    document.getElementById('langToggle').onclick = () => {
-      I18n.toggle();
-      document.getElementById('langToggle').textContent = I18n.t('langSwitch');
-      this.render();
-    };
+    this._renderLangFlags();
+    var logoutBtn = document.getElementById('btnLogout');
+    if (logoutBtn) {
+      logoutBtn.onclick = async () => {
+        try { await fetch('/api/logout', { method: 'POST' }); } catch(e) {}
+        window.location.href = '/login';
+      };
+    }
+    fetch('/api/me').then(function(r) { return r.ok ? r.json() : null; }).then(function(me) {
+      if (me && me.admin) {
+        var ha = document.querySelector('.header-actions');
+        if (ha && !document.getElementById('adminLink')) {
+          var a = document.createElement('a');
+          a.id = 'adminLink';
+          a.className = 'btn-lang';
+          a.href = '/admin.html';
+          a.textContent = 'Admin';
+          ha.insertBefore(a, ha.firstChild);
+        }
+      }
+    }).catch(function() {});
     document.getElementById('recoverYes').onclick = () => this._recoverYes();
     document.getElementById('recoverYes').textContent = this.t('recoverYes');
     document.getElementById('recoverNo').textContent = this.t('recoverNo');
@@ -127,6 +143,25 @@ class SamsonApp {
         this.render();
       }
     };
+  }
+
+  _renderLangFlags() {
+    var wrap = document.getElementById('langFlags');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    var self = this;
+    I18n.languages.forEach(function(l) {
+      var b = document.createElement('button');
+      b.className = 'lang-flag' + (I18n.lang === l.code ? ' active' : '');
+      b.dataset.lang = l.code;
+      b.title = l.label;
+      b.textContent = l.flag;
+      b.onclick = function() {
+        I18n.setLang(l.code);
+        self.render();
+      };
+      wrap.appendChild(b);
+    });
   }
 
   _maxAccessibleStep() {
@@ -153,7 +188,7 @@ class SamsonApp {
   _renderHeader() {
     document.getElementById('appTitle').textContent = this.t('appTitle');
     document.getElementById('appSubtitle').textContent = this.t('appSubtitle');
-    document.getElementById('langToggle').textContent = I18n.t('langSwitch');
+    this._renderLangFlags();
 
     const dots = document.getElementById('stepIndicators');
     dots.innerHTML = '';
@@ -259,14 +294,9 @@ class SamsonApp {
   }
 
   _showMissingWarning(missing, onContinue) {
-    var isZh = I18n.lang === 'zh';
-    var msg = isZh
-      ? '以下 ' + missing.length + ' 个项目缺少照片：'
-      : 'The following ' + missing.length + ' items are missing photos:';
+    var msg = this.t('missingIntro').replace('{count}', missing.length);
     var list = missing.map(function(m) { return '• ' + m; }).join('\n');
-    var confirmMsg = isZh
-      ? msg + '\n\n' + list + '\n\n确定继续生成报告吗？（缺失项不会出现在报告中）'
-      : msg + '\n\n' + list + '\n\nContinue generating report? (Missing items will be omitted)';
+    var confirmMsg = msg + '\n\n' + list + '\n\n' + this.t('missingContinueMsg');
     if (confirm(confirmMsg)) {
       onContinue();
     }
@@ -374,7 +404,7 @@ class SamsonApp {
       this._startBarcodeAPI();
     } else {
       reader.innerHTML += `<p style="margin-top:16px;"><button class="btn btn-primary" id="btnScanFallback">
-        📷 ${I18n.lang === 'zh' ? '打开相机扫描' : 'Open Camera to Scan'}</button></p>`;
+        📷 ${this.t('openCameraScan')}</button></p>`;
     }
 
     document.getElementById('cancelScan').onclick = () => {
@@ -416,7 +446,7 @@ class SamsonApp {
       scan();
     }).catch(() => {
       document.getElementById('scannerReader').innerHTML =
-        `<p style="color:red;">${I18n.lang === 'zh' ? '无法访问相机，请检查权限或使用相册扫码' : 'Cannot access camera. Check permissions.'}</p>`;
+        `<p style="color:red;">${this.t('cameraAccessDenied')}</p>`;
     });
   }
 
@@ -440,11 +470,11 @@ class SamsonApp {
               this._parseBarcode(barcodes[0].rawValue);
               document.getElementById('scannerModal').style.display = 'none';
             } else {
-              alert(I18n.lang === 'zh' ? '未识别到条形码，请重试' : 'No barcode detected, please retry');
+              alert(this.t('noBarcode'));
             }
-          }).catch(() => alert('Scan failed'));
+          }).catch(() => alert(this.t('scanFailed')));
         } else {
-          alert(I18n.lang === 'zh' ? '浏览器不支持扫码功能' : 'Browser does not support barcode scanning');
+          alert(this.t('noBarcodeSupport'));
         }
       };
     };
@@ -689,7 +719,7 @@ class SamsonApp {
     items.forEach((it) => {
       html += '<div class="acc-item" data-key="' + it.key + '">';
       html += '<label class="acc-label"><input type="checkbox" class="app-chk" ' + (it.selected ? 'checked' : '') + ' /><span>' + it.label + '</span>';
-      if (it.subs) html += '<span class="chk-sub-hint">（' + (I18n.lang==='zh'?'需拍':'Need') + ' ' + it.subCount + ' ' + (I18n.lang==='zh'?'张':'photos') + '）</span>';
+      if (it.subs) html += '<span class="chk-sub-hint">' + this.t('nPhotosNeeded').replace('{count}', it.subCount) + '</span>';
       html += '</label>';
       if (it.subs) {
         html += '<div class="chk-subs" style="' + (it.selected ? '' : 'display:none') + '">';
@@ -818,7 +848,7 @@ class SamsonApp {
     modal.style.display = 'flex';
     document.getElementById('camOrientation').textContent =
       orientation === 'portrait' ? this.t('portrait') : this.t('landscape');
-    document.querySelector('#cameraModal .cam-hint').textContent = orientation === 'portrait' ? '请保持手机竖直拍摄' : '请将手机横置拍摄';
+    document.querySelector('#cameraModal .cam-hint').textContent = orientation === 'portrait' ? this.t('portraitHint') : this.t('landscapeHint');
   }
 
   // ── Camera modal bindings (done once) ──────
@@ -1125,7 +1155,7 @@ class SamsonApp {
       items.push({ key: 'app_clean_1_photo', label: this.t('internalCleanliness') + ' - ' + this.t('outlet'), accKey: 'clean', idx: 1, type: 'photo', orientation: 'portrait' });
     }
     (app.otherAppearance || []).forEach((o, i) => { if (o.name) items.push({ key: 'app_oth_' + i + '_0_photo', label: o.name, accKey: 'oth_' + i, idx: 0, type: 'photo', orientation: 'portrait' }); });
-    if (!items.length) { c.innerHTML = '<p style="text-align:center;padding:40px;color:#999">' + (I18n.lang==='zh'?'未选择外观项目，已自动跳过':'No appearance items selected, skipped.') + '</p>'; setTimeout(() => { if (this.currentStep === 5) { this.currentStep++; this.render(); } }, 600); return; }
+    if (!items.length) { c.innerHTML = '<p style="text-align:center;padding:40px;color:#999">' + this.t('noAppearanceSkipped') + '</p>'; setTimeout(() => { if (this.currentStep === 5) { this.currentStep++; this.render(); } }, 600); return; }
     var html = '<h3 class="section-title">' + this.t('previewAppearance') + '</h3><div class="photo-grid">';
     var self = this;
     items.forEach(function(item) {
@@ -1182,7 +1212,7 @@ class SamsonApp {
     });
 
     if (items.length === 0) {
-      c.innerHTML = `<p style="text-align:center;padding:40px;color:#999;">${I18n.lang === 'zh' ? '未选择附件，已自动跳过' : 'No accessories selected, skipped.'}</p>`;
+      c.innerHTML = `<p style="text-align:center;padding:40px;color:#999;">${this.t('noAccessorySkipped')}</p>`;
       setTimeout(() => { if (this.currentStep === 6) { this.currentStep++; this.render(); } }, 600);
       return;
     }
@@ -1396,7 +1426,7 @@ class SamsonApp {
       <p><strong>${this.t('reportFileName')}:</strong></p>
       <code>${this._esc(fileName)}</code>
       <div class="gen-actions">
-        <button class="btn btn-outline" id="btnPreview">🔍 ${I18n.lang === 'zh' ? '预览报告' : 'Preview Report'}</button>
+        <button class="btn btn-outline" id="btnPreview">🔍 ${this.t('previewReport')}</button>
         <button class="btn btn-primary" id="btnGenPDF">📄 ${this.t('downloadPDF')}</button>
         <button class="btn btn-outline" id="btnGenLink">🔗 ${this.t('shareLink')}</button>
       </div>
@@ -1497,13 +1527,13 @@ class SamsonApp {
 
   async _previewReport(fileName) {
     var status = document.getElementById('genStatus');
-    status.innerHTML = '<p>' + (I18n.lang === 'zh' ? '正在生成预览...' : 'Generating preview...') + '</p>';
+    status.innerHTML = '<p>' + this.t('generatingPreview') + '</p>';
     try {
       var doc = await this._buildPDF();
       var blob = doc.output('blob');
       var url = URL.createObjectURL(blob);
       window.open(url, '_blank');
-      status.innerHTML = '<p style="color:green;">' + (I18n.lang === 'zh' ? '预览已在新标签页中打开' : 'Preview opened in new tab') + '</p>';
+      status.innerHTML = '<p style="color:green;">' + this.t('previewOpened') + '</p>';
     } catch(err) {
       status.innerHTML = '<p style="color:red;">Error: ' + err.message + '</p>';
     }

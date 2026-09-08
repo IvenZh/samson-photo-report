@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>SAMSON Photo Report — Sign In</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #003D79; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .lang-flags { position: fixed; top: 14px; right: 14px; display: flex; gap: 4px; background: rgba(255,255,255,.12); padding: 4px 6px; border-radius: 8px; }
+  .lang-flag { font-size: 1.3rem; background: transparent; border: 0; cursor: pointer; padding: 2px 4px; opacity: .4; border-radius: 5px; }
+  .lang-flag.active { opacity: 1; background: rgba(255,255,255,.28); }
+  .card { width: 100%; max-width: 360px; background: #fff; border-radius: 12px; padding: 28px 24px; box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+  h1 { font-size: 1.05rem; color: #003D79; margin-bottom: 4px; }
+  .sub { font-size: .78rem; color: #6c757d; margin-bottom: 22px; }
+  label { display: block; font-size: .78rem; font-weight: 600; color: #495057; margin: 12px 0 4px; }
+  input { width: 100%; padding: 10px 12px; border: 1px solid #ced4da; border-radius: 7px; font-size: .95rem; }
+  button.primary { width: 100%; margin-top: 18px; padding: 11px; border: 0; border-radius: 7px; background: #003D79; color: #fff; font-size: .95rem; font-weight: 600; cursor: pointer; }
+  button.primary:active { background: #005AA3; }
+  #err { color: #dc3545; font-size: .82rem; margin-top: 10px; min-height: 1em; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="lang-flags" id="langFlags"></div>
+  <div class="card">
+    <h1 id="authTitle"></h1>
+    <div class="sub">Q-2047</div>
+    <label id="userLbl" for="username"></label>
+    <input id="username" autocomplete="username" />
+    <label id="passLbl" for="password"></label>
+    <input id="password" type="password" autocomplete="current-password" />
+    <button class="primary" id="signInBtn"></button>
+    <div id="err"></div>
+  </div>
+  <script src="/js/i18n.js"></script>
+  <script>
+    function apply() {
+      document.title = I18n.t('authTitle');
+      document.getElementById('authTitle').textContent = I18n.t('authTitle');
+      document.getElementById('userLbl').textContent = I18n.t('usernameLabel');
+      document.getElementById('passLbl').textContent = I18n.t('passwordLabel');
+      document.getElementById('signInBtn').textContent = I18n.t('signIn');
+      var wrap = document.getElementById('langFlags');
+      wrap.innerHTML = '';
+      I18n.languages.forEach(function(l) {
+        var b = document.createElement('button');
+        b.className = 'lang-flag' + (I18n.lang === l.code ? ' active' : '');
+        b.textContent = l.flag;
+        b.onclick = function() { I18n.setLang(l.code); apply(); };
+        wrap.appendChild(b);
+      });
+    }
+    apply();
+    function nextPath() {
+      var n = new URLSearchParams(location.search).get('next') || '/';
+      return n.indexOf('/') === 0 ? n : '/';
+    }
+    document.getElementById('signInBtn').onclick = async function() {
+      var err = document.getElementById('err');
+      err.textContent = '';
+      var username = document.getElementById('username').value.trim();
+      var password = document.getElementById('password').value;
+      if (!username || !password) { err.textContent = I18n.t('loginFailed'); return; }
+      var btn = this;
+      btn.disabled = true;
+      try {
+        var res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username, password: password }) });
+        if (res.ok) { location.href = nextPath(); return; }
+        err.textContent = I18n.t('loginFailed');
+      } catch (e) { err.textContent = I18n.t('errorServer'); }
+      btn.disabled = false;
+    };
+    document.getElementById('password').addEventListener('keydown', function(e) { if (e.key === 'Enter') document.getElementById('signInBtn').click(); });
+  </script>
+</body>
+</html>

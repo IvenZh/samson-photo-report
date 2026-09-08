@@ -13,3 +13,4 @@ cache/
 # Env / secrets
 .env
 .env.*
+data/

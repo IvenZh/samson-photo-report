@@ -462,3 +462,32 @@ input, select, button { -webkit-appearance: none; appearance: none; }
   color: var(--blue);
   font-weight: 500;
 }
+
+/* ── Language flags & header actions ─────── */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.lang-flags {
+  display: flex;
+  gap: 3px;
+}
+.lang-flag {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 1.15rem;
+  line-height: 1;
+  padding: 3px 4px;
+  cursor: pointer;
+  opacity: .45;
+  filter: grayscale(30%);
+}
+.lang-flag.active {
+  opacity: 1;
+  filter: none;
+  background: rgba(255,255,255,.22);
+  border-color: rgba(255,255,255,.55);
+}
