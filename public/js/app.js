@@ -570,7 +570,7 @@ class SamsonApp {
     html += '</div>';
 
     // Cleanliness requirement label (with quantity stepper)
-    html += `<div class="acc-item" data-key="cleaningLabel">
+    html += `<div class="acc-item${acc.cleaningLabel ? ' checked' : ''}" data-key="cleaningLabel">
       <label class="acc-label">
         <input type="checkbox" class="acc-chk" ${acc.cleaningLabel ? 'checked' : ''} />
         <span>${this.t('cleaningLabel')}</span>
@@ -594,6 +594,7 @@ class SamsonApp {
       chk.onchange = () => {
         this.data.accessories[key].selected = chk.checked;
         stepper.style.display = chk.checked ? 'flex' : 'none';
+        el.classList.toggle('checked', chk.checked);
         this._autoSave();
       };
       el.querySelector('.qty-plus').onclick = () => {
@@ -610,6 +611,7 @@ class SamsonApp {
           a.selected = false;
           a.qty = 1;
           chk.checked = false;
+          el.classList.remove('checked');
           stepper.style.display = 'none';
           valSpan.textContent = '1';
           this._autoSave();
@@ -639,6 +641,7 @@ class SamsonApp {
       var cleanVal = cleanRow.querySelector('.qty-val');
       cleanChk.onchange = function() {
         this.data.accessories.cleaningLabel = cleanChk.checked;
+        cleanRow.classList.toggle('checked', cleanChk.checked);
         cleanStepper.style.display = cleanChk.checked ? 'flex' : 'none';
         if (!cleanChk.checked) this.data.accessories.cleaningQty = 1;
         this._autoSave();
@@ -650,7 +653,7 @@ class SamsonApp {
       cleanRow.querySelector('.qty-minus').onclick = function() {
         var q = this.data.accessories.cleaningQty || 1;
         if (q > 1) { this.data.accessories.cleaningQty = q - 1; cleanVal.textContent = q - 1; this._autoSave(); }
-        else { cleanChk.checked = false; this.data.accessories.cleaningLabel = false; cleanStepper.style.display = 'none'; this._autoSave(); }
+        else { cleanChk.checked = false; cleanRow.classList.remove('checked'); this.data.accessories.cleaningLabel = false; cleanStepper.style.display = 'none'; this._autoSave(); }
       }.bind(this);
     }
 
@@ -677,7 +680,7 @@ class SamsonApp {
 
   _accItemGroup(items) {
     return items.map(it => `
-      <div class="acc-item" data-key="${it.key}">
+      <div class="acc-item${it.selected ? ' checked' : ''}" data-key="${it.key}">
         <label class="acc-label">
           <input type="checkbox" class="acc-chk" ${it.selected ? 'checked' : ''} />
           <span>${it.label}</span>
@@ -716,6 +719,7 @@ class SamsonApp {
       { key: 'internalCleanliness',label: this.t('internalCleanliness'),selected: app.internalCleanliness,subs: [this.t('inlet'), this.t('outlet')], subCount: 2 },
     ];
     var html = '<h3 class="section-title">' + this.t('appearanceTitle') + '</h3><div class="step2-form">';
+    html += '<div class="scope-tip">' + this.t('appearanceTip') + '</div>';
     items.forEach((it) => {
       html += '<div class="acc-item" data-key="' + it.key + '">';
       html += '<label class="acc-label"><input type="checkbox" class="app-chk" ' + (it.selected ? 'checked' : '') + ' /><span>' + it.label + '</span>';

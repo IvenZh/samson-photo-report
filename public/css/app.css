@@ -5,6 +5,7 @@
   --blue: #003D79;
   --blue-light: #005AA3;
   --blue-bg: #E8F0F8;
+  --blue-50: #E8F0F8;
   --gray-50: #F8F9FA;
   --gray-100: #E9ECEF;
   --gray-200: #DEE2E6;
@@ -490,4 +491,16 @@ input, select, button { -webkit-appearance: none; appearance: none; }
   filter: none;
   background: rgba(255,255,255,.22);
   border-color: rgba(255,255,255,.55);
+}
+
+/* ── Scope tip ─────────────────────────────── */
+.scope-tip {
+  background: #FFF8E6;
+  border: 1px solid #F0D987;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: .78rem;
+  line-height: 1.5;
+  color: #7A5C00;
+  margin-bottom: 12px;
 }

@@ -186,8 +186,8 @@ app.post('/api/admin/users', requireAdmin, (req, res) => {
   const username = String((req.body && req.body.username) || '').trim();
   const password = String((req.body && req.body.password) || '');
   const role = ((req.body && req.body.role) || 'user') === 'admin' ? 'admin' : 'user';
-  if (!/^[A-Za-z0-9._-]{3,32}$/.test(username)) return res.status(400).json({ error: 'invalid_username' });
-  if (password.length < 6) return res.status(400).json({ error: 'weak_password' });
+  if (!/^[A-Za-z0-9._-]{2,32}$/.test(username)) return res.status(400).json({ error: 'invalid_username' });
+  if (!password) return res.status(400).json({ error: 'weak_password' });
   const u = getUsers();
   if (u.users[username]) return res.status(409).json({ error: 'exists' });
   u.users[username] = { password: hashPassword(password), role, createdAt: new Date().toISOString() };
@@ -200,7 +200,7 @@ app.put('/api/admin/users/:username', requireAdmin, (req, res) => {
   const u = getUsers();
   if (!u.users[username]) return res.status(404).json({ error: 'not_found' });
   if (req.body && req.body.password) {
-    if (String(req.body.password).length < 6) return res.status(400).json({ error: 'weak_password' });
+    if (!req.body.password) return res.status(400).json({ error: 'weak_password' });
     u.users[username].password = hashPassword(req.body.password);
   }
   if (req.body && req.body.role && (req.body.role === 'admin' || req.body.role === 'user')) {
