@@ -1547,7 +1547,7 @@ class SamsonApp {
     var self = this;
     var L = function(key) { return I18n.dict['en'][key] || key; };
 
-    // Canvas-based text — consistent rendering for Chinese + English
+    // Canvas-based text — preserve the original aspect ratio in the PDF
     var T = function(text, size, color) {
       if (!text) return null;
       var c = document.createElement('canvas');
@@ -1561,15 +1561,20 @@ class SamsonApp {
       ctx.font = 'bold ' + px + 'px "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif';
       ctx.textBaseline = 'top';
       ctx.fillText(text, 3, 2);
-      return c.toDataURL('image/png');
+      return { dataURL: c.toDataURL('image/png'), width: c.width, height: c.height };
     };
 
     var addTextImg = function(text, x, y, size, color, maxW) {
-      var img = T(text, size, color);
-      if (!img) return;
+      var image = T(text, size, color);
+      if (!image) return;
       try {
-        var h = size * 0.42; // approximate mm height
-        doc.addImage(img, 'PNG', x, y, maxW || 60, h);
+        var drawH = size * 0.42;
+        var drawW = drawH * (image.width / image.height);
+        if (maxW && drawW > maxW) {
+          drawW = maxW;
+          drawH = drawW * (image.height / image.width);
+        }
+        doc.addImage(image.dataURL, 'PNG', x, y, drawW, drawH);
       } catch(e) {}
     };
 
@@ -1604,7 +1609,13 @@ class SamsonApp {
       // ── Title
       var titleImg = T('SAMSON  —  Control Valve Photo Documentation  —  Q-2047', 11, '#003D79');
       if (titleImg) {
-        try { doc.addImage(titleImg, 'PNG', margin, currentY - 1, 150, 7); } catch(e) {}
+        var titleH = 11 * 0.42;
+        var titleW = titleH * (titleImg.width / titleImg.height);
+        if (titleW > 150) {
+          titleW = 150;
+          titleH = titleW * (titleImg.height / titleImg.width);
+        }
+        try { doc.addImage(titleImg.dataURL, 'PNG', margin, currentY - 1, titleW, titleH); } catch(e) {}
       }
       currentY += 9;
       doc.setDrawColor(0, 61, 121);
