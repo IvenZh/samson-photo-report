@@ -1546,185 +1546,186 @@ class SamsonApp {
     var doc = new jsPDF('p', 'mm', 'a4');
     var self = this;
     var L = function(key) { return I18n.dict['en'][key] || key; };
+    var mmPerPt = 25.4 / 72;
 
-    // Canvas-based text — preserve the original aspect ratio in the PDF
-    var T = function(text, size, color) {
+    // Canvas-based text with a stable aspect ratio
+    var T = function(text, size, color, weight) {
       if (!text) return null;
       var c = document.createElement('canvas');
       var ctx = c.getContext('2d');
-      var px = Math.round(size * 3);
-      ctx.font = 'bold ' + px + 'px "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif';
+      var px = Math.round(size * 4);
+      var font = (weight || '600') + ' ' + px + 'px "Helvetica Neue",Helvetica,Arial,sans-serif';
+      ctx.font = font;
       var m = ctx.measureText(text);
-      c.width = Math.max(Math.ceil(m.width) + 10, 20);
-      c.height = Math.ceil(px * 1.6);
+      var padX = Math.max(Math.round(px * 0.08), 2);
+      var padY = Math.max(Math.round(px * 0.08), 2);
+      var ascent = Math.ceil(m.actualBoundingBoxAscent || px * 0.8);
+      var descent = Math.ceil(m.actualBoundingBoxDescent || px * 0.2);
+      c.width = Math.max(Math.ceil(m.width + padX * 2), 20);
+      c.height = Math.max(ascent + descent + padY * 2, 12);
       ctx.fillStyle = color || '#000000';
-      ctx.font = 'bold ' + px + 'px "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif';
-      ctx.textBaseline = 'top';
-      ctx.fillText(text, 3, 2);
+      ctx.font = font;
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(text, padX, padY + ascent);
       return { dataURL: c.toDataURL('image/png'), width: c.width, height: c.height };
     };
 
-    var addTextImg = function(text, x, y, size, color, maxW) {
-      var image = T(text, size, color);
-      if (!image) return;
+    var addTextImg = function(text, x, y, size, color, maxW, weight, centerInWidth) {
+      var image = T(text, size, color, weight);
+      if (!image) return 0;
       try {
-        var drawH = size * 0.42;
+        var drawH = size * mmPerPt;
         var drawW = drawH * (image.width / image.height);
         if (maxW && drawW > maxW) {
           drawW = maxW;
           drawH = drawW * (image.height / image.width);
         }
+        if (centerInWidth) x += Math.max((centerInWidth - drawW) / 2, 0);
         doc.addImage(image.dataURL, 'PNG', x, y, drawW, drawH);
-      } catch(e) {}
+        return drawW;
+      } catch(e) { return 0; }
     };
 
-    // Photo helper: aspect-ratio aware placement
-    var addPhoto = function(dataURL, x, y, maxW, maxH) {
+    var loadImage = function(dataURL) {
       return new Promise(function(resolve) {
         var img = new Image();
-        img.onload = function() {
-          var ratio = img.width / img.height;
-          var slotRatio = maxW / maxH;
-          var dw, dh;
-          if (ratio > slotRatio) { dw = maxW; dh = maxW / ratio; }
-          else { dh = maxH; dw = maxH * ratio; }
-          // Center in slot
-          var dx = x + (maxW - dw) / 2;
-          var dy = y + (maxH - dh) / 2;
-          try { doc.addImage(dataURL, 'JPEG', dx, dy, dw, dh); } catch(e) {}
-          resolve({ w: dw, h: dh });
-        };
+        img.onload = function() { resolve(img); };
+        img.onerror = function() { resolve(null); };
         img.src = dataURL;
       });
+    };
+
+    var fitPhoto = function(img, maxW, maxH) {
+      var ratio = img.width / img.height;
+      var slotRatio = maxW / maxH;
+      if (ratio > slotRatio) return { w: maxW, h: maxW / ratio };
+      return { w: maxH * ratio, h: maxH };
     };
 
     try {
       var pageW = doc.internal.pageSize.getWidth();
       var pageH = doc.internal.pageSize.getHeight();
-      var margin = 12;
+      var margin = 14;
+      var contentW = pageW - margin * 2;
+      var footerReserve = 12;
       var currentY = margin;
-
       var addPage = function() { doc.addPage(); currentY = margin; };
+      var ensureSpace = function(height) {
+        if (currentY + height > pageH - margin - footerReserve) addPage();
+      };
 
       // ── Title
-      var titleImg = T('SAMSON  —  Control Valve Photo Documentation  —  Q-2047', 11, '#003D79');
-      if (titleImg) {
-        var titleH = 11 * 0.42;
-        var titleW = titleH * (titleImg.width / titleImg.height);
-        if (titleW > 150) {
-          titleW = 150;
-          titleH = titleW * (titleImg.height / titleImg.width);
-        }
-        try { doc.addImage(titleImg.dataURL, 'PNG', margin, currentY - 1, titleW, titleH); } catch(e) {}
-      }
-      currentY += 9;
-      doc.setDrawColor(0, 61, 121);
-      doc.setLineWidth(0.6);
+      addTextImg('SAMSON', margin, currentY, 18, '#111111', 50, '700');
+      addTextImg('CONTROL VALVE PHOTO DOCUMENTATION', margin, currentY + 9, 10, '#4B5563', 130, '600');
+      addTextImg('Q-2047', pageW - margin - 28, currentY, 13, '#111111', 28, '700');
+      addTextImg('PHOTO REPORT', pageW - margin - 28, currentY + 7, 8, '#6B7280', 28, '600');
+      currentY += 16;
+      doc.setDrawColor(17, 17, 17);
+      doc.setLineWidth(0.5);
       doc.line(margin, currentY, pageW - margin, currentY);
-      currentY += 5;
-
-      // ── Basic Info — all canvas images
-      var labels = [
-        'IFS No.',
-        'Pos.',
-        'Tag No.',
-        'Serial No.',
-        'Type',
-        'Recorder'
-      ];
-      var vals = [
-        this.data.contractNo || '-',
-        this.data.positionNo || '-',
-        this.data.tagNo || '-',
-        this.data.serialNo || '-',
-        this.data.valveType || '-',
-        this.data.recorder || '-',
-      ];
-      var infoY = currentY;
-      labels.forEach(function(lbl, i) {
-        var rowY = infoY + i * 8;
-        addTextImg(lbl + ':', margin, rowY, 7, '#444444', 55);
-        addTextImg(vals[i], margin + 57, rowY, 7, '#000000', 55);
-      }.bind(this));
-      currentY = infoY + labels.length * 8 + 4;
-      doc.setDrawColor(200, 200, 200);
-      doc.setLineWidth(0.3);
-      doc.line(margin, currentY, pageW - margin, currentY);
-      currentY += 5;
-
-      // ── Photo layout settings
-      var slotW = (pageW - margin * 2 - 6) / 2;
-      var slotH = slotW * 0.8;
-
-      // ── Valve Photos
-      addTextImg('Valve Photos', margin, currentY, 8, '#003D79', 80);
       currentY += 6;
+
+      // ── Basic information table
+      var infoRows = [
+        [['IFS No.', this.data.contractNo || '-'], ['Pos.', this.data.positionNo || '-']],
+        [['Tag No.', this.data.tagNo || '-'], ['Serial No.', this.data.serialNo || '-']],
+        [['Type', this.data.valveType || '-'], ['Recorder', this.data.recorder || '-']]
+      ];
+      var infoRowH = 10;
+      var infoColW = (contentW - 6) / 2;
+      var infoH = infoRows.length * infoRowH;
+      ensureSpace(infoH + 4);
+      doc.setDrawColor(209, 213, 219);
+      doc.setLineWidth(0.3);
+      doc.rect(margin, currentY, contentW, infoH, 'S');
+      infoRows.forEach(function(row, rowIndex) {
+        var rowY = currentY + rowIndex * infoRowH;
+        if (rowIndex > 0) doc.line(margin, rowY, margin + contentW, rowY);
+        row.forEach(function(cell, colIndex) {
+          var cellX = margin + colIndex * (infoColW + 6);
+          if (colIndex > 0) doc.line(cellX - 3, rowY, cellX - 3, rowY + infoRowH);
+          addTextImg(cell[0].toUpperCase(), cellX + 3, rowY + 2.8, 8.5, '#6B7280', 27, '700');
+          addTextImg(cell[1], cellX + 32, rowY + 2.1, 10.5, '#111111', infoColW - 35, '400');
+        });
+      });
+      currentY += infoH + 7;
+
+      var columnW = (contentW - 6) / 2;
+      var drawPhotoGrid = async function(title, items, maxImageH) {
+        if (!items.length) return;
+        var rows = [];
+        for (var i = 0; i < items.length; i += 2) {
+          var rowItems = items.slice(i, i + 2);
+          var fits = [];
+          for (var j = 0; j < rowItems.length; j++) {
+            var img = await loadImage(rowItems[j].dataURL);
+            fits.push(img ? fitPhoto(img, columnW, maxImageH) : { w: columnW, h: maxImageH });
+          }
+          var rowImageH = Math.max.apply(null, fits.map(function(f) { return f.h; }));
+          rows.push({ items: rowItems, fits: fits, imageH: rowImageH, height: rowImageH + 7 });
+        }
+        ensureSpace(12 + rows[0].height);
+        currentY += 4;
+        addTextImg(title.toUpperCase(), margin, currentY, 11.5, '#111111', 120, '700');
+        currentY += 6.2;
+        doc.setDrawColor(209, 213, 219);
+        doc.setLineWidth(0.3);
+        doc.line(margin, currentY, pageW - margin, currentY);
+        currentY += 5;
+
+        for (var r = 0; r < rows.length; r++) {
+          var row = rows[r];
+          ensureSpace(row.height);
+          for (var c = 0; c < row.items.length; c++) {
+            var item = row.items[c];
+            var fit = row.fits[c];
+            var x = margin + c * (columnW + 6) + (columnW - fit.w) / 2;
+            doc.setDrawColor(209, 213, 219);
+            doc.setLineWidth(0.25);
+            doc.rect(x, currentY, fit.w, fit.h, 'S');
+            try { doc.addImage(item.dataURL, 'JPEG', x, currentY, fit.w, fit.h); } catch(e) {}
+            addTextImg(item.label, margin + c * (columnW + 6), currentY + row.imageH + 2.5,
+              8.5, '#6B7280', columnW - 6, '400', columnW);
+          }
+          currentY += row.height + 2;
+        }
+      };
+
       var valveKeys = ['frontView','rightView','leftView','rearView','valveNameplate','tagNameplate','actuatorNameplate'];
       var valveEn = ['Front View','Right View','Left View','Rear View','Valve Nameplate','Tag Nameplate','Actuator Nameplate'];
-      var photoIdx = 0;
+      var valveItems = [];
+      valveKeys.forEach(function(key, index) {
+        if (this.data.valvePhotos[key]) valveItems.push({ dataURL: this.data.valvePhotos[key], label: valveEn[index] });
+      }.bind(this));
+      await drawPhotoGrid('Valve Photos', valveItems, 78);
 
-      for (var vi = 0; vi < valveKeys.length; vi++) {
-        var dataURL = this.data.valvePhotos[valveKeys[vi]];
-        if (!dataURL) continue;
-        if (currentY + slotH + 10 > pageH - margin) addPage();
-        var col = photoIdx % 2;
-        var x = margin + col * (slotW + 6);
-        if (col === 0 && photoIdx > 0) currentY += slotH + 8;
-        await addPhoto(dataURL, x, currentY, slotW, slotH);
-        addTextImg(valveEn[vi], x, currentY + slotH + 1, 5.5, '#555555', slotW);
-        photoIdx++;
-      }
+      var appearItems = this._getAllAppearanceItems().map(function(item) {
+        return {
+          dataURL: this._getAppearancePhoto(item.accKey, item.idx, item.type),
+          label: item.enLabel || item.label
+        };
+      }.bind(this)).filter(function(item) { return !!item.dataURL; });
+      await drawPhotoGrid('Appearance Photos', appearItems, 36);
 
-      // ── Appearance Photos
-      var appearItems = this._getAllAppearanceItems();
-      if (appearItems.length > 0) {
-        currentY += slotH + 12;
-        if (currentY > pageH - 30) addPage();
-        addTextImg('Appearance Photos', margin, currentY, 8, '#003D79', 80);
-        currentY += 6;
-        var ai = 0;
-        for (var ai2 = 0; ai2 < appearItems.length; ai2++) {
-          var a = appearItems[ai2];
-          var p = this._getAppearancePhoto(a.accKey, a.idx, a.type);
-          if (!p) continue;
-          if (currentY + slotH + 10 > pageH - margin) addPage();
-          var acol = ai % 2;
-          var ax = margin + acol * (slotW + 6);
-          if (acol === 0 && ai > 0) currentY += slotH + 8;
-          await addPhoto(p, ax, currentY, slotW, slotH);
-          addTextImg(a.enLabel || a.label, ax, currentY + slotH + 1, 5.5, '#555555', slotW);
-          ai++;
-        }
-      }
-
-      // ── Accessory Photos
-      var accItems = this._getAllAccessoryItems();
-      if (accItems.length > 0) {
-        currentY += slotH + 12;
-        if (currentY > pageH - 30) addPage();
-        addTextImg('Accessory Photos', margin, currentY, 8, '#003D79', 80);
-        currentY += 6;
-        var accSlotH = slotW * 0.65;
-        var aci = 0;
-        for (var aci2 = 0; aci2 < accItems.length; aci2++) {
-          var aa = accItems[aci2];
-          var pp = this._getAccessoryPhoto(aa.accKey, aa.idx, aa.type);
-          if (!pp) continue;
-          if (currentY + accSlotH + 10 > pageH - margin) addPage();
-          var acccol = aci % 2;
-          var accx = margin + acccol * (slotW + 6);
-          if (acccol === 0 && aci > 0) currentY += accSlotH + 8;
-          await addPhoto(pp, accx, currentY, slotW, accSlotH);
-          addTextImg(aa.enLabel || aa.label, accx, currentY + accSlotH + 1, 5.5, '#555555', slotW);
-          aci++;
-        }
-      }
+      var accItems = this._getAllAccessoryItems().map(function(item) {
+        return {
+          dataURL: this._getAccessoryPhoto(item.accKey, item.idx, item.type),
+          label: item.enLabel || item.label
+        };
+      }.bind(this)).filter(function(item) { return !!item.dataURL; });
+      await drawPhotoGrid('Accessory Photos', accItems, 38);
 
       // ── Footer
       var pageCount = doc.internal.getNumberOfPages();
       for (var pi = 1; pi <= pageCount; pi++) {
         doc.setPage(pi);
-        addTextImg(new Date().toISOString().slice(0,10) + '  |  Page ' + pi + '/' + pageCount, margin, pageH - 6, 5.5, '#999999', 100);
+        doc.setDrawColor(209, 213, 219);
+        doc.setLineWidth(0.3);
+        doc.line(margin, pageH - 13, pageW - margin, pageH - 13);
+        addTextImg(String(pi) + ' / ' + String(pageCount), margin, pageH - 9.5,
+          8, '#4B5563', 30, '600');
+        addTextImg('Q-2047', pageW - margin - 30, pageH - 9.5,
+          8, '#4B5563', 30, '600');
       }
       return doc;
     } catch(err) {
