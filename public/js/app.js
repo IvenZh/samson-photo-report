@@ -1597,6 +1597,14 @@ class SamsonApp {
       }
     };
 
+    var scaleBox = function(box, scaleX, scaleY, anchorBottom) {
+      var w = box.w * scaleX;
+      var h = box.h * scaleY;
+      var x = box.x + (box.w - w) / 2;
+      var y = anchorBottom ? box.y + box.h - h : box.y + (box.h - h) / 2;
+      return { x: x, y: y, w: w, h: h };
+    };
+
     var drawRule = function(pdfY) {
       doc.setDrawColor(204, 204, 204);
       doc.setLineWidth(0.5);
@@ -1638,9 +1646,11 @@ class SamsonApp {
       var valveViewX = [49.16405, 186.4829, 323.8018, 461.1207];
       var valveViewTop = Y(480.5687 + 113.3211);
       for (var vi = 0; vi < valveViewKeys.length; vi++) {
-        await drawContainedImage(this.data.valvePhotos[valveViewKeys[vi]], {
+        var valveViewBox = scaleBox({
           x: valveViewX[vi], y: valveViewTop, w: 84.9908, h: 113.3211
-        }, valveViewLabels[vi], Y(470.6));
+        }, 1.10, 1.10, true);
+        await drawContainedImage(this.data.valvePhotos[valveViewKeys[vi]], valveViewBox,
+          valveViewLabels[vi], Y(470.6));
       }
 
       var nameplateKeys = ['valveNameplate', 'tagNameplate', 'actuatorNameplate'];
@@ -1648,9 +1658,11 @@ class SamsonApp {
       var nameplateX = [25, 162.3189, 299.6378];
       var nameplateTop = Y(390.6376 + 46.54109);
       for (var ni = 0; ni < nameplateKeys.length; ni++) {
-        await drawContainedImage(this.data.valvePhotos[nameplateKeys[ni]], {
+        var nameplateBox = scaleBox({
           x: nameplateX[ni], y: nameplateTop, w: 133.3189, h: 46.54109
-        }, nameplateLabels[ni], Y(347.2));
+        }, 0.85, 0.85, false);
+        await drawContainedImage(this.data.valvePhotos[nameplateKeys[ni]], nameplateBox,
+          nameplateLabels[ni], Y(347.2));
       }
 
       drawRule(335.2476);
@@ -1669,12 +1681,17 @@ class SamsonApp {
         else label = label + ' - Photo';
         return {
           dataURL: this._getAccessoryPhoto(item.accKey, item.idx, item.type),
-          label: label
+          label: label,
+          type: item.type
         };
       }.bind(this)).filter(function(item) { return !!item.dataURL; });
 
       for (var ai = 0; ai < Math.min(accessoryItems.length, accessoryBoxes.length); ai++) {
-        await drawContainedImage(accessoryItems[ai].dataURL, accessoryBoxes[ai], accessoryItems[ai].label, Y(179.9));
+        var accessoryBox = accessoryItems[ai].type === 'nameplate'
+          ? scaleBox(accessoryBoxes[ai], 0.85, 0.85, false)
+          : scaleBox(accessoryBoxes[ai], 1.08, 1.08, true);
+        await drawContainedImage(accessoryItems[ai].dataURL, accessoryBox,
+          accessoryItems[ai].label, Y(179.9));
       }
 
       drawRule(167.9266);
