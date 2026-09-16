@@ -540,7 +540,7 @@ class SamsonApp {
     html += '</div>';
 
     // Cleanliness requirement label (with quantity stepper)
-    html += `<div class="acc-item" data-key="cleaningLabel">
+    html += `<div class="acc-item${acc.cleaningLabel ? ' checked' : ''}" data-key="cleaningLabel">
       <label class="acc-label">
         <input type="checkbox" class="acc-chk" ${acc.cleaningLabel ? 'checked' : ''} />
         <span>${this.t('cleaningLabel')}</span>
@@ -564,6 +564,7 @@ class SamsonApp {
       chk.onchange = () => {
         this.data.accessories[key].selected = chk.checked;
         stepper.style.display = chk.checked ? 'flex' : 'none';
+        el.classList.toggle('checked', chk.checked);
         this._autoSave();
       };
       el.querySelector('.qty-plus').onclick = () => {
@@ -580,6 +581,7 @@ class SamsonApp {
           a.selected = false;
           a.qty = 1;
           chk.checked = false;
+          el.classList.remove('checked');
           stepper.style.display = 'none';
           valSpan.textContent = '1';
           this._autoSave();
@@ -609,6 +611,7 @@ class SamsonApp {
       var cleanVal = cleanRow.querySelector('.qty-val');
       cleanChk.onchange = function() {
         this.data.accessories.cleaningLabel = cleanChk.checked;
+        cleanRow.classList.toggle('checked', cleanChk.checked);
         cleanStepper.style.display = cleanChk.checked ? 'flex' : 'none';
         if (!cleanChk.checked) this.data.accessories.cleaningQty = 1;
         this._autoSave();
@@ -620,7 +623,7 @@ class SamsonApp {
       cleanRow.querySelector('.qty-minus').onclick = function() {
         var q = this.data.accessories.cleaningQty || 1;
         if (q > 1) { this.data.accessories.cleaningQty = q - 1; cleanVal.textContent = q - 1; this._autoSave(); }
-        else { cleanChk.checked = false; this.data.accessories.cleaningLabel = false; cleanStepper.style.display = 'none'; this._autoSave(); }
+        else { cleanChk.checked = false; cleanRow.classList.remove('checked'); this.data.accessories.cleaningLabel = false; cleanStepper.style.display = 'none'; this._autoSave(); }
       }.bind(this);
     }
 
@@ -647,7 +650,7 @@ class SamsonApp {
 
   _accItemGroup(items) {
     return items.map(it => `
-      <div class="acc-item" data-key="${it.key}">
+      <div class="acc-item${it.selected ? ' checked' : ''}" data-key="${it.key}">
         <label class="acc-label">
           <input type="checkbox" class="acc-chk" ${it.selected ? 'checked' : ''} />
           <span>${it.label}</span>
@@ -1577,7 +1580,7 @@ class SamsonApp {
       return imageCache.get(dataURL);
     };
 
-    var drawContainedImage = async function(dataURL, box, label, captionY) {
+    var drawContainedImage = async function(dataURL, box, label, captionGap) {
       if (!dataURL) return;
       var img = await loadImage(dataURL);
       if (!img) return;
@@ -1593,7 +1596,7 @@ class SamsonApp {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
         doc.setTextColor(0, 0, 0);
-        doc.text(label, box.x + box.w / 2, captionY, { align: 'center' });
+        doc.text(label, box.x + box.w / 2, drawY + drawH + (captionGap || 8), { align: 'center' });
       }
     };
 
@@ -1610,7 +1613,7 @@ class SamsonApp {
       return { x: x, y: y, w: width, h: height };
     };
 
-    var photoSize = { w: 97.5, h: 130 };
+    var photoSize = { w: 128.8189, h: 171.7585 };
 
     var drawRule = function(pdfY) {
       doc.setDrawColor(204, 204, 204);
@@ -1656,9 +1659,9 @@ class SamsonApp {
         var valveViewBox = centeredBox({
           x: valveViewX[vi], y: valveViewTop, w: 84.9908, h: 113.3211
         }, photoSize.w, photoSize.h, false);
-        valveViewBox.y = 239;
+        valveViewBox.y = 238;
         await drawContainedImage(this.data.valvePhotos[valveViewKeys[vi]], valveViewBox,
-          valveViewLabels[vi], Y(458));
+          valveViewLabels[vi], 7);
       }
 
       var nameplateKeys = ['valveNameplate', 'tagNameplate', 'actuatorNameplate'];
@@ -1669,13 +1672,14 @@ class SamsonApp {
         var nameplateBox = boxWithWidth({
           x: nameplateX[ni], y: nameplateTop, w: 133.3189, h: 46.54109
         }, photoSize.w);
+        nameplateBox.y = 425;
         await drawContainedImage(this.data.valvePhotos[nameplateKeys[ni]], nameplateBox,
-          nameplateLabels[ni], Y(347.2));
+          nameplateLabels[ni], 6);
       }
 
-      drawRule(335.2476);
+      drawRule(351.8898);
       doc.setFontSize(10);
-      doc.text('Accessory Photos', pageW / 2, Y(321.2), { align: 'center' });
+      doc.text('Accessory Photos', pageW / 2, Y(337.8898), { align: 'center' });
 
       var accessoryBoxes = [
         { x: 49.16405, y: Y(189.9266 + 113.3211), w: 84.9908, h: 113.3211 },
@@ -1698,16 +1702,16 @@ class SamsonApp {
         var accessoryBox = accessoryItems[ai].type === 'nameplate'
           ? boxWithWidth(accessoryBoxes[ai], photoSize.w)
           : centeredBox(accessoryBoxes[ai], photoSize.w, photoSize.h, false);
-        if (accessoryItems[ai].type !== 'nameplate') accessoryBox.y = 527;
+        if (accessoryItems[ai].type !== 'nameplate') accessoryBox.y = 516;
         await drawContainedImage(accessoryItems[ai].dataURL, accessoryBox,
-          accessoryItems[ai].label, Y(168));
+          accessoryItems[ai].label, 7);
       }
 
-      drawRule(167.9266);
+      drawRule(129);
       if (this.data.accessories.cleaningLabel) {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(9);
-        doc.text('Cleanliness Requirement Label: ' + (this.data.accessories.cleaningQty || 1) + ' pc(s)', 25, Y(153.9));
+        doc.text('Cleanliness Requirement Label: ' + (this.data.accessories.cleaningQty || 1) + ' pc(s)', 25, Y(116));
       }
 
       // Overflow protection: preserve the approved first page and continue with the same 4-column geometry.
@@ -1731,12 +1735,6 @@ class SamsonApp {
         doc.setFontSize(10);
         doc.text(overflow[oi].title, pageW / 2, 118, { align: 'center' });
         var overflowItems = overflow[oi].items;
-        var overflowBoxes = [
-          { x: 25, y: 145, w: 125, h: 105 },
-          { x: 157, y: 145, w: 125, h: 105 },
-          { x: 289, y: 145, w: 125, h: 105 },
-          { x: 421, y: 145, w: 125, h: 105 }
-        ];
         for (var xi = 0; xi < overflowItems.length; xi++) {
           if (xi > 0 && xi % 4 === 0) {
             doc.addPage();
@@ -1748,11 +1746,19 @@ class SamsonApp {
             doc.setFontSize(10);
             doc.text(overflow[oi].title, pageW / 2, 118, { align: 'center' });
           }
-          var oiBox = overflowBoxes[xi % 4];
-          var oiY = 145 + Math.floor((xi % 8) / 4) * 145;
-          await drawContainedImage(overflowItems[xi].dataURL, {
-            x: oiBox.x, y: oiY, w: oiBox.w, h: oiBox.h
-          }, overflowItems[xi].label, oiY + oiBox.h + 14);
+          var col = xi % 4;
+          var row = Math.floor(xi / 4) % 2;
+          var oiX = 25 + col * (photoSize.w + 10);
+          var oiY = 145 + row * (photoSize.h + 14);
+          var overflowBox = { x: oiX, y: oiY, w: photoSize.w, h: photoSize.h };
+          if (overflowItems[xi].type === 'nameplate') {
+            var refBox = accessoryBoxes[col];
+            overflowBox = boxWithWidth(refBox, photoSize.w);
+            overflowBox.x = oiX + (photoSize.w - overflowBox.w) / 2;
+            overflowBox.y = oiY + (photoSize.h - overflowBox.h) / 2;
+          }
+          await drawContainedImage(overflowItems[xi].dataURL, overflowBox,
+            overflowItems[xi].label, 7);
         }
       }
 
