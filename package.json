@@ -8,6 +8,7 @@
     "dev": "node server.js"
   },
   "dependencies": {
+    "archiver": "^7.0.1",
     "express": "^4.21.0",
     "multer": "^1.4.5-lts.1",
     "uuid": "^10.0.0"

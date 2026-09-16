@@ -1401,7 +1401,7 @@ class SamsonApp {
       <div class="gen-actions">
         <button class="btn btn-outline" id="btnPreview">🔍 ${I18n.lang === 'zh' ? '预览报告' : 'Preview Report'}</button>
         <button class="btn btn-primary" id="btnGenPDF">📄 ${this.t('downloadPDF')}</button>
-        <button class="btn btn-outline" id="btnGenLink">🔗 ${this.t('shareLink')}</button>
+        <button class="btn btn-outline" id="btnGenLink">📦 ${this.t('downloadPackage')}</button>
       </div>
       <div id="genStatus" class="gen-status"></div>
     </div>`;
@@ -1409,7 +1409,7 @@ class SamsonApp {
 
     document.getElementById('btnPreview').onclick = () => this._previewReport(fileName);
     document.getElementById('btnGenPDF').onclick = () => this._generatePDF(fileName);
-    document.getElementById('btnGenLink').onclick = () => this._saveAndShare(fileName);
+    document.getElementById('btnGenLink').onclick = () => this._saveAndDownload(fileName);
   }
 
   _genReportFileName() {
@@ -1425,36 +1425,71 @@ class SamsonApp {
     return String(value || 'NA').trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '-') || 'NA';
   }
 
-  async _saveAndShare(fileName) {
+  _photoFilePart(value) {
+    return String(value || 'Photo').trim().replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'Photo';
+  }
+
+  _imageExtension(dataURL) {
+    return /^data:image\/png/i.test(dataURL || '') ? '.png' : '.jpg';
+  }
+
+  _collectReportPhotos() {
+    var photos = [];
+    var sequence = 1;
+    var add = function(key, label, dataURL) {
+      if (!dataURL) return;
+      var number = ('0' + sequence).slice(-2);
+      photos.push({
+        key: key,
+        filename: number + '_' + this._photoFilePart(label) + this._imageExtension(dataURL),
+        dataURL: dataURL
+      });
+      sequence++;
+    }.bind(this);
+
+    var valveFields = [
+      ['frontView', 'Valve_Front_View'],
+      ['rightView', 'Valve_Right_View'],
+      ['leftView', 'Valve_Left_View'],
+      ['rearView', 'Valve_Rear_View'],
+      ['valveNameplate', 'Valve_Nameplate'],
+      ['tagNameplate', 'Tag_Nameplate'],
+      ['actuatorNameplate', 'Actuator_Nameplate']
+    ];
+    valveFields.forEach(function(field) {
+      add(field[0], field[1], this.data.valvePhotos[field[0]]);
+    }.bind(this));
+
+    this._getAllAppearanceItems().forEach(function(item) {
+      add(item.key, 'Appearance_' + (item.enLabel || item.label), this._getAppearancePhoto(item.accKey, item.idx, item.type));
+    }.bind(this));
+
+    this._getAllAccessoryItems().forEach(function(item) {
+      var base = item.enLabel || item.label;
+      if (item.type === 'nameplate') base = base.replace(/ Nameplate$/i, '') + '_Nameplate';
+      else base = base + '_Photo';
+      add(item.key, 'Accessory_' + base, this._getAccessoryPhoto(item.accKey, item.idx, item.type));
+    }.bind(this));
+    return photos;
+  }
+
+  async _saveAndDownload(fileName) {
     const status = document.getElementById('genStatus');
     status.innerHTML = `<p>${this.t('generating')}</p>`;
 
     try {
-      // Upload all images first
+      const reportName = fileName.replace(/\.pdf$/i, '');
       const images = {};
       const uploads = [];
 
-      for (const [key, dataURL] of Object.entries(this.data.valvePhotos)) {
-        if (!dataURL) continue;
-        uploads.push(this._uploadDataURL(dataURL).then(filename => { images[key] = filename; }));
-      }
+      const pdfDoc = await this._buildPDF();
+      uploads.push(SamsonStorage.uploadImage(pdfDoc.output('blob'), reportName, reportName + '.pdf')
+        .then(function(result) { images.reportPdf = result.filename; }));
 
-      for (const [accKey, photos] of Object.entries(this.data.accessoryPhotos)) {
-        if (!Array.isArray(photos)) continue;
-        for (let i = 0; i < photos.length; i++) {
-          if (!photos[i]) continue;
-          if (photos[i].photo) {
-            uploads.push(this._uploadDataURL(photos[i].photo).then(fn => {
-              images[`acc_${accKey}_${i}_photo`] = fn;
-            }));
-          }
-          if (photos[i].nameplate) {
-            uploads.push(this._uploadDataURL(photos[i].nameplate).then(fn => {
-              images[`acc_${accKey}_${i}_nameplate`] = fn;
-            }));
-          }
-        }
-      }
+      this._collectReportPhotos().forEach(function(photo) {
+        uploads.push(this._uploadDataURL(photo.dataURL, reportName, photo.filename)
+          .then(function(filename) { images[photo.key] = filename; }));
+      }.bind(this));
 
       await Promise.all(uploads);
 
@@ -1469,19 +1504,19 @@ class SamsonApp {
         accessories: this.data.accessories
       };
 
-      const result = await SamsonStorage.saveReport(meta, images);
-      const link = `${window.location.origin}/report.html?id=${result.id}`;
+      const result = await SamsonStorage.saveReport(meta, images, reportName);
+      const link = result.downloadUrl;
 
       status.innerHTML = `
         <p style="color:green;">✅ ${this.t('saved')}</p>
-        <p><a href="${link}" target="_blank">${link}</a></p>
-        <button class="btn btn-sm" id="btnCopyLink">${this.t('copyLink')}</button>`;
+        <p><a href="${link}" download>${this.t('downloadPackage')}</a></p>`;
 
-      document.getElementById('btnCopyLink').onclick = () => {
-        navigator.clipboard.writeText(link).then(() => {
-          alert(this.t('copied'));
-        });
-      };
+      const download = document.createElement('a');
+      download.href = link;
+      download.download = reportName + '.zip';
+      document.body.appendChild(download);
+      download.click();
+      download.remove();
 
       SamsonStorage.clearDraft();
     } catch (err) {
@@ -1489,9 +1524,9 @@ class SamsonApp {
     }
   }
 
-  async _uploadDataURL(dataURL) {
+  async _uploadDataURL(dataURL, reportName, filename) {
     const blob = this._dataURLtoBlob(dataURL);
-    const result = await SamsonStorage.uploadImage(blob);
+    const result = await SamsonStorage.uploadImage(blob, reportName, filename);
     return result.filename;
   }
 

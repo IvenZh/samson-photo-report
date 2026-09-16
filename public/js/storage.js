@@ -58,18 +58,19 @@ window.SamsonStorage = {
   },
 
   // ── Report save/load via server
-  async saveReport(meta, images) {
+  async saveReport(meta, images, reportName) {
     const res = await fetch(`${this.API_BASE}/api/reports`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ meta, images })
+      body: JSON.stringify({ meta, images, reportName })
     });
     if (!res.ok) throw new Error('Save failed');
     return await res.json();
   },
 
-  async uploadImage(file) {
+  async uploadImage(file, reportName, filename) {
     const form = new FormData();
-    form.append('image', file);
+    form.append('reportName', reportName);
+    form.append('image', file, filename);
     const res = await fetch(`${this.API_BASE}/api/upload`, { method: 'POST', body: form });
     if (!res.ok) throw new Error('Upload failed');
     return await res.json();

@@ -1,5 +1,6 @@
 const express = require('express');
 const multer = require('multer');
+const archiver = require('archiver');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
@@ -9,9 +10,43 @@ const PORT = process.env.PORT || 3000;
 
 // Directories
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
+const REPORTS_DIR = path.join(__dirname, 'reports');
 const BACKUPS_DIR = path.join(__dirname, 'backups');
 const CACHE_DIR = path.join(__dirname, 'cache');
-[UPLOADS_DIR, BACKUPS_DIR, CACHE_DIR].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
+[UPLOADS_DIR, REPORTS_DIR, BACKUPS_DIR, CACHE_DIR].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
+
+function safeName(value, fallback) {
+  var name = String(value || '').trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '-').replace(/[. ]+$/g, '');
+  return name || fallback;
+}
+
+function reportDirectory(reportName) {
+  return path.join(REPORTS_DIR, safeName(reportName, 'unnamed-report'));
+}
+
+function uniqueFilename(dir, filename) {
+  var ext = path.extname(filename);
+  var base = path.basename(filename, ext);
+  var candidate = filename;
+  var index = 1;
+  while (fs.existsSync(path.join(dir, candidate))) {
+    candidate = base + '_' + index + ext;
+    index++;
+  }
+  return candidate;
+}
+
+function createZip(sourceDir, zipPath, rootName) {
+  return new Promise(function(resolve, reject) {
+    var output = fs.createWriteStream(zipPath);
+    var archive = archiver('zip', { zlib: { level: 6 } });
+    output.on('close', resolve);
+    archive.on('error', reject);
+    archive.pipe(output);
+    archive.directory(sourceDir, rootName);
+    archive.finalize();
+  });
+}
 
 // Middleware
 app.use(express.json({ limit: '100mb' }));
@@ -19,10 +54,16 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Multer for image uploads
 const imageStorage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, UPLOADS_DIR),
+  destination: (req, file, cb) => {
+    const dir = reportDirectory(req.body.reportName || 'unnamed-report');
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
   filename: (req, file, cb) => {
+    const dir = reportDirectory(req.body.reportName || 'unnamed-report');
     const ext = path.extname(file.originalname) || '.jpg';
-    cb(null, `${uuidv4()}${ext}`);
+    const base = safeName(path.basename(file.originalname, ext), uuidv4());
+    cb(null, uniqueFilename(dir, `${base}${ext}`));
   }
 });
 const upload = multer({ storage: imageStorage, limits: { fileSize: 20 * 1024 * 1024 } });
@@ -30,39 +71,56 @@ const upload = multer({ storage: imageStorage, limits: { fileSize: 20 * 1024 * 1
 // ── API: Upload a single image
 app.post('/api/upload', upload.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No image file' });
-  res.json({ filename: req.file.filename, size: req.file.size });
+  res.json({
+    filename: req.file.filename,
+    reportName: safeName(req.body.reportName, 'unnamed-report'),
+    size: req.file.size
+  });
 });
 
 // ── API: Save full report (metadata JSON + already-uploaded image refs)
-app.post('/api/reports', (req, res) => {
-  const { meta, images } = req.body;
+app.post('/api/reports', async (req, res) => {
+  const { meta, images, reportName } = req.body;
   if (!meta || !images) return res.status(400).json({ error: 'Missing meta or images' });
-  const reportId = uuidv4();
+  const reportId = safeName(reportName, uuidv4());
   const report = { id: reportId, meta, images, createdAt: new Date().toISOString() };
+  const dir = reportDirectory(reportId);
+  fs.mkdirSync(dir, { recursive: true });
 
-  // Save as JSON
-  fs.writeFileSync(path.join(UPLOADS_DIR, `${reportId}.json`), JSON.stringify(report, null, 2));
+  fs.writeFileSync(path.join(dir, 'report.json'), JSON.stringify(report, null, 2));
 
   // Backup copy
   fs.writeFileSync(path.join(BACKUPS_DIR, `${reportId}.json`), JSON.stringify(report, null, 2));
 
-  res.json({ id: reportId });
+  const zipPath = path.join(REPORTS_DIR, `${reportId}.zip`);
+  await createZip(dir, zipPath, reportId);
+  res.json({ id: reportId, reportName: reportId, downloadUrl: `/api/reports/${encodeURIComponent(reportId)}/download` });
+});
+
+app.get('/api/reports/:id/download', (req, res) => {
+  const reportId = safeName(req.params.id, '');
+  const zipPath = path.join(REPORTS_DIR, `${reportId}.zip`);
+  if (!reportId || !fs.existsSync(zipPath)) return res.status(404).json({ error: 'Not found' });
+  res.download(zipPath, `${reportId}.zip`);
 });
 
 // ── API: Get report by ID
 app.get('/api/reports/:id', (req, res) => {
-  const filePath = path.join(UPLOADS_DIR, `${req.params.id}.json`);
+  const reportId = safeName(req.params.id, '');
+  const filePath = path.join(reportDirectory(reportId), 'report.json');
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   res.json(JSON.parse(fs.readFileSync(filePath, 'utf-8')));
 });
 
 // ── API: List all reports (summary)
 app.get('/api/reports', (req, res) => {
-  const files = fs.readdirSync(UPLOADS_DIR).filter(f => f.endsWith('.json'));
-  const summaries = files.map(f => {
-    const data = JSON.parse(fs.readFileSync(path.join(UPLOADS_DIR, f), 'utf-8'));
-    return { id: data.id, contractNo: data.meta.contractNo, serialNo: data.meta.serialNo, createdAt: data.createdAt };
-  });
+  const dirs = fs.readdirSync(REPORTS_DIR, { withFileTypes: true }).filter(d => d.isDirectory());
+  const summaries = dirs.map(d => {
+    try {
+      const data = JSON.parse(fs.readFileSync(path.join(REPORTS_DIR, d.name, 'report.json'), 'utf-8'));
+      return { id: data.id, contractNo: data.meta.contractNo, serialNo: data.meta.serialNo, createdAt: data.createdAt };
+    } catch (e) { return null; }
+  }).filter(Boolean);
   res.json(summaries);
 });
 
