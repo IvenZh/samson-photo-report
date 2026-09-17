@@ -1698,12 +1698,9 @@ class SamsonApp {
 
     try {
       // Header — coordinates reproduced from the approved PDF.
-      doc.setFillColor(0, 0, 0);
-      doc.circle(541.929, Y(799.236), 28.346, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.setTextColor(255, 255, 255);
-      doc.text('samson', 541.929, Y(796.2), { align: 'center' });
+      await drawContainedImage('/assets/samson-logo.jpg', {
+        x: 513.5827, y: 14.3071, w: 56.69291, h: 56.69291
+      }, null, 0);
 
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(0, 0, 0);
