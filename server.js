@@ -11,9 +11,10 @@ const PORT = process.env.PORT || 3000;
 // Directories
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
 const REPORTS_DIR = path.join(__dirname, 'reports');
+const SESSIONS_DIR = path.join(__dirname, 'sessions');
 const BACKUPS_DIR = path.join(__dirname, 'backups');
 const CACHE_DIR = path.join(__dirname, 'cache');
-[UPLOADS_DIR, REPORTS_DIR, BACKUPS_DIR, CACHE_DIR].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
+[UPLOADS_DIR, REPORTS_DIR, SESSIONS_DIR, BACKUPS_DIR, CACHE_DIR].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
 
 function safeName(value, fallback) {
   var name = String(value || '').trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '-').replace(/[. ]+$/g, '');
@@ -116,6 +117,37 @@ app.get('/api/reports/:id/files/:filename', (req, res) => {
   const filePath = path.join(reportDirectory(reportId), filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   res.download(filePath, filename);
+});
+
+app.post('/api/sessions/package', async (req, res) => {
+  const sessionId = safeName((req.body && req.body.sessionId) || '', uuidv4());
+  const requested = Array.isArray(req.body && req.body.reports) ? req.body.reports : [];
+  const reportIds = requested.map(function(id) { return safeName(id, ''); }).filter(function(id, index, all) {
+    return id && all.indexOf(id) === index && fs.existsSync(reportDirectory(id));
+  });
+  if (!reportIds.length) return res.status(400).json({ error: 'No reports to package' });
+  const zipPath = path.join(SESSIONS_DIR, `${sessionId}.zip`);
+  await new Promise(function(resolve, reject) {
+    var output = fs.createWriteStream(zipPath);
+    var archive = archiver('zip', { zlib: { level: 6 } });
+    output.on('close', resolve);
+    archive.on('error', reject);
+    archive.pipe(output);
+    reportIds.forEach(function(id) { archive.directory(reportDirectory(id), id); });
+    archive.append(JSON.stringify({ sessionId: sessionId, reports: reportIds, createdAt: new Date().toISOString() }, null, 2), { name: `${sessionId}/session-manifest.json` });
+    archive.finalize();
+  });
+  res.json({
+    sessionId: sessionId,
+    downloadUrl: `api/sessions/${encodeURIComponent(sessionId)}/download`
+  });
+});
+
+app.get('/api/sessions/:id/download', (req, res) => {
+  const sessionId = safeName(req.params.id, '');
+  const zipPath = path.join(SESSIONS_DIR, `${sessionId}.zip`);
+  if (!sessionId || !fs.existsSync(zipPath)) return res.status(404).json({ error: 'Not found' });
+  res.download(zipPath, `${sessionId}.zip`);
 });
 
 // ── API: Get report by ID

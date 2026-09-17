@@ -4,6 +4,7 @@ node_modules/
 # Runtime data (uploaded photos, reports, caches, drafts)
 uploads/
 reports/
+sessions/
 backups/
 cache/
 

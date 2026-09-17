@@ -713,6 +713,8 @@ class SamsonApp {
     document.getElementById('btnCloseSession').onclick = () => this._confirmDanger(
       '关闭 Session', '确认完成本轮拍照任务？关闭后将显示 Session ID、阀门清单和下载入口。此操作代表本轮任务结束。', () => this._closeSession());
     document.getElementById('btnRoleSwitch').onclick = () => this._showRolePicker();
+    var completedBtn = document.getElementById('btnCompletedReports');
+    if (completedBtn) completedBtn.onclick = () => this._showCompletedReports();
     document.getElementById('langToggle').onclick = () => {
       I18n.toggle();
       document.getElementById('langToggle').textContent = I18n.t('langSwitch');
@@ -737,6 +739,13 @@ class SamsonApp {
   _maxAccessibleStep() {
     // Any step up to current or already-completed steps
     return this.currentStep;
+  }
+
+  _updateCompletedButton() {
+    var btn = document.getElementById('btnCompletedReports');
+    if (!btn) return;
+    var count = this.batch ? this.batch.valves.filter(function(v) { return !!v.serverArchive; }).length : 0;
+    btn.textContent = I18n.lang === 'zh' ? '已完成 ' + count : 'Completed ' + count;
   }
 
   _confirmDanger(title, message, action) {
@@ -843,6 +852,7 @@ class SamsonApp {
       : 'Session ' + sessionCount + ' / 10(Max)';
     document.getElementById('langToggle').textContent = I18n.t('langSwitch');
     document.getElementById('btnRoleSwitch').textContent = this.currentUser.displayName + ' · ' + this._roleLabel(this.currentUser.role);
+    this._updateCompletedButton();
     document.getElementById('sessionToolbar').style.display =
       this.currentUser.role === 'operator' && !this._roleDashboard ? 'flex' : 'none';
     document.getElementById('btnRefreshCurrent').textContent = I18n.lang === 'zh' ? '刷新' : 'Refresh';
@@ -2195,8 +2205,6 @@ class SamsonApp {
       <div class="gen-actions">
         <button class="btn btn-outline" id="btnPreview">🔍 ${I18n.lang === 'zh' ? '预览报告' : 'Preview Report'}</button>
         <button class="btn btn-primary" id="btnGenerateReport">${I18n.lang === 'zh' ? '生成报告' : 'Generate Report'}</button>
-        <button class="btn btn-outline" id="btnDownloadReport" style="display:none;">📄 ${this.t('downloadPDF')}</button>
-        <button class="btn btn-outline" id="btnDownloadZip" style="display:none;">📦 ${this.t('downloadPackage')}</button>
         <button class="btn btn-primary" id="btnSaveNextValve" disabled>${I18n.lang === 'zh' ? '继续拍照下一台' : 'Continue to Next Valve'}</button>
       </div>
       <div id="genStatus" class="gen-status"></div>
@@ -2205,18 +2213,15 @@ class SamsonApp {
 
     document.getElementById('btnPreview').onclick = () => this._previewReport(fileName);
     document.getElementById('btnGenerateReport').onclick = () => this._generateServerReport(fileName);
-    document.getElementById('btnDownloadReport').onclick = () => this._downloadArchivedFile('report', fileName);
-    document.getElementById('btnDownloadZip').onclick = () => this._downloadArchivedFile('zip', fileName);
     document.getElementById('btnSaveNextValve').onclick = () => this._saveAndNextValve();
 
     var status = document.getElementById('genStatus');
     var active = this._getActiveValve();
     if (active && active.serverArchive) {
       if (status) status.innerHTML = '<p style="color:green;">' + (I18n.lang === 'zh' ? '照片报告已生成，暂存服务器，请尽快下载。' : 'Report generated and archived. Please download soon.') + '</p>';
-      document.getElementById('btnDownloadReport').style.display = '';
-      document.getElementById('btnDownloadZip').style.display = '';
       document.getElementById('btnSaveNextValve').disabled = false;
       document.getElementById('btnGenerateReport').disabled = true;
+      this._updateCompletedButton();
     } else if (status) {
       status.innerHTML = '<p>' + (I18n.lang === 'zh' ? '请先预览检查，确认无误后点击生成报告。' : 'Preview first, then generate the report.') + '</p>';
     }
@@ -2228,10 +2233,9 @@ class SamsonApp {
     var archive = await this._ensureServerArchive(fileName);
     if (!archive) return;
     if (status) status.innerHTML = '<p style="color:green;">✅ ' + (I18n.lang === 'zh' ? '照片报告已生成，暂存服务器，请尽快下载。' : 'Report generated and archived. Please download soon.') + '</p>';
-    document.getElementById('btnDownloadReport').style.display = '';
-    document.getElementById('btnDownloadZip').style.display = '';
     document.getElementById('btnSaveNextValve').disabled = false;
     document.getElementById('btnGenerateReport').disabled = true;
+    this._updateCompletedButton();
   }
 
   _downloadArchivedFile(type, fileName) {
@@ -2365,6 +2369,7 @@ class SamsonApp {
         valve.data = this.data;
         this._log('report_generated', { reportName: reportName, archiveId: result.id });
         this._saveBatch();
+        this._updateCompletedButton();
       }
       return archive;
     }.bind(this))();
@@ -2393,13 +2398,43 @@ class SamsonApp {
     } else {
       completed.forEach(function(valve) {
         var code = 'Pos' + this._normalizePosNumber(valve.positionNo);
-        html += '<div class="completed-report-row"><div><strong>' + code + ' · ' + this._esc(valve.tagNo || valve.serialNo) + '</strong><small>' + this._esc(valve.ifsOrderNo) + '</small></div><div class="completed-report-actions"><a class="btn btn-sm btn-outline" href="' + valve.serverArchive.reportUrl + '" download>PDF</a><a class="btn btn-sm btn-outline" href="' + valve.serverArchive.downloadUrl + '" download>' + (zh ? '照片 ZIP' : 'Photos ZIP') + '</a></div></div>';
+        html += '<div class="completed-report-row"><div><strong>' + this._esc(valve.ifsOrderNo) + ' · ' + code + '</strong><small>' + this._esc(valve.tagNo || valve.serialNo) + '</small></div><div class="completed-report-actions"><a class="btn btn-sm btn-outline" href="' + valve.serverArchive.reportUrl + '" download>PDF</a><a class="btn btn-sm btn-outline" href="' + valve.serverArchive.downloadUrl + '" download>' + (zh ? '照片 ZIP' : 'Photos ZIP') + '</a></div></div>';
       }.bind(this));
     }
-    html += '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="closeCompletedReports">' + (zh ? '关闭' : 'Close') + '</button></div></div>';
+    html += '<div class="appearance-prompt-actions">';
+    if (completed.length) html += '<button class="btn btn-primary" id="downloadSessionPackage">' + (zh ? '下载整个 Session' : 'Download Entire Session') + '</button>';
+    html += '<button class="btn btn-outline" id="closeCompletedReports">' + (zh ? '关闭' : 'Close') + '</button></div></div>';
     modal.innerHTML = html;
     document.body.appendChild(modal);
     document.getElementById('closeCompletedReports').onclick = function() { modal.remove(); };
+    if (document.getElementById('downloadSessionPackage')) document.getElementById('downloadSessionPackage').onclick = function() { this._downloadSessionPackage(completed); }.bind(this);
+  }
+
+  async _downloadSessionPackage(completed) {
+    if (!completed || !completed.length) return;
+    var status = document.getElementById('genStatus');
+    if (status) status.innerHTML = '<p>' + (I18n.lang === 'zh' ? '正在打包整个 Session…' : 'Packaging entire session…') + '</p>';
+    try {
+      var response = await fetch('api/sessions/package', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId: this.batch.id,
+          reports: completed.map(function(valve) { return valve.serverArchive.id; })
+        })
+      });
+      if (!response.ok) throw new Error('Session package failed');
+      var result = await response.json();
+      this._log('session_package_downloaded', { sessionId: this.batch.id, reports: completed.map(function(v) { return v.serverArchive.id; }) });
+      var link = document.createElement('a');
+      link.href = result.downloadUrl;
+      link.download = result.sessionId + '.zip';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) {
+      this._showToast((I18n.lang === 'zh' ? 'Session 打包失败: ' : 'Session package failed: ') + err.message, 'error');
+    }
   }
 
   async _uploadDataURL(dataURL, reportName, filename) {
