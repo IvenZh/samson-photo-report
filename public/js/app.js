@@ -8,9 +8,17 @@ class SamsonApp {
       this.currentStep = 1;
       this.totalSteps = 8;
       this.data = this._defaultData();
+      this.batch = null;
+      this.activeValveId = '';
+      this._archivePromises = {};
+      this.localUsers = this._loadRoleDemoUsers();
+      var savedUser = localStorage.getItem('samson_role_demo_current') || 'liuyang';
+      this.currentUser = this.localUsers.find(function(user) { return user.username === savedUser; }) || this.localUsers[0];
+      this._roleDashboard = this.currentUser.role !== 'operator';
       this._bindBaseEvents();
-      this._checkDraft();
+      window._draftChecked = true;
       this.render();
+      this._initMultiValvePrototype();
     } catch(e) {
       document.getElementById('mainContent').innerHTML =
         '<div style="padding:16px;color:red;font-family:monospace;font-size:13px;">' +
@@ -45,6 +53,596 @@ class SamsonApp {
       },
       appearancePhotos: {}
     };
+  }
+
+  _normalizePosNumber(value) {
+    return String(value || '').trim().replace(/^Pos\s*/i, '');
+  }
+
+  _loadRoleDemoUsers() {
+    var defaults = [
+      { username: 'liuyang', displayName: 'Liu Yang', role: 'operator' },
+      { username: 'sunqiang', displayName: 'Sun Qiang', role: 'supervisor' },
+      { username: 'zhaofeng', displayName: 'Zhao Feng', role: 'admin' }
+    ];
+    try {
+      var saved = JSON.parse(localStorage.getItem('samson_role_demo_users') || 'null');
+      return Array.isArray(saved) && saved.length ? saved : defaults;
+    } catch (e) { return defaults; }
+  }
+
+  _saveRoleDemoUsers() {
+    localStorage.setItem('samson_role_demo_users', JSON.stringify(this.localUsers));
+  }
+
+  _roleLabel(role) {
+    return ({ operator: 'Operator', supervisor: 'Supervisor', admin: 'Admin' })[role] || role;
+  }
+
+  _switchRole(username) {
+    var user = this.localUsers.find(function(item) { return item.username === username; });
+    if (!user) return;
+    this.currentUser = user;
+    localStorage.setItem('samson_role_demo_current', username);
+    this._roleDashboard = user.role !== 'operator';
+    if (!this._roleDashboard && this.batch && this.batch.ownerUserId === user.username) {
+      var active = this._getActiveValve();
+      if (active) {
+        this.activeValveId = active.id;
+        this.data = this._deepMerge(this._defaultData(), active.data || {});
+        this.currentStep = active.currentStep || 1;
+      } else {
+        this.currentStep = 1;
+      }
+    } else {
+      this.currentStep = this._roleDashboard ? 0 : 1;
+    }
+    this.render();
+  }
+
+  _showResumeSessionPrompt() {
+    var existing = document.getElementById('resumeSessionModal');
+    if (existing) existing.remove();
+    var zh = I18n.lang === 'zh';
+    var ownerMatches = !this.batch.ownerUserId || this.batch.ownerUserId === this.currentUser.username;
+    var active = this._getActiveValve();
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.id = 'resumeSessionModal';
+    var html = '<div class="modal-content role-picker-modal"><h3>' + (zh ? '发现未完成的 Session' : 'Unfinished Session Found') + '</h3>';
+    html += '<p><strong>Session ID:</strong> ' + this._esc(this.batch.id) + '</p>';
+    html += '<p>' + (zh ? '阀门数量：' : 'Valves: ') + this.batch.valves.length + '</p>';
+    if (active) html += '<p>' + (zh ? '当前阀门：' : 'Current valve: ') + 'Pos' + this._normalizePosNumber(active.positionNo) + ' · ' + this._esc(active.tagNo || active.serialNo) + '</p>';
+    if (!ownerMatches) {
+      html += '<p class="role-login-error">' + (zh ? '该 Session 属于 ' + this.batch.ownerDisplayName + '，当前账号不能继续。' : 'This Session belongs to ' + this.batch.ownerDisplayName + ' and cannot be continued by this account.') + '</p>';
+    }
+    html += '<div class="appearance-prompt-actions">';
+    if (ownerMatches) html += '<button class="btn btn-primary" id="resumeSessionYes">' + (zh ? '继续上次 Session' : 'Continue Session') + '</button>';
+    html += '<button class="btn btn-outline" id="resumeSessionNo">' + (zh ? '开始新 Session' : 'Start New Session') + '</button></div></div>';
+    modal.innerHTML = html;
+    document.body.appendChild(modal);
+    if (document.getElementById('resumeSessionYes')) document.getElementById('resumeSessionYes').onclick = function() { modal.remove(); this.render(); }.bind(this);
+    document.getElementById('resumeSessionNo').onclick = function() { modal.remove(); this._resetSession(); }.bind(this);
+  }
+
+  _showRolePicker() {
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.id = 'rolePickerModal';
+    var html = '<div class="modal-content role-picker-modal"><h3>登录</h3>';
+    html += '<div class="wizard-block"><label>用户 / 角色</label><select id="roleUserSelect">';
+    this.localUsers.forEach(function(user) {
+      html += '<option value="' + user.username + '"' + (user.username === this.currentUser.username ? ' selected' : '') + '>' + this._esc(user.displayName) + ' · ' + this._roleLabel(user.role) + '</option>';
+    }.bind(this));
+    html += '</select></div><div class="wizard-block"><label>密码</label><input id="rolePassword" type="password" autocomplete="current-password" /></div><div id="roleLoginError" class="role-login-error"></div>';
+    html += '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="roleLoginBtn">登录</button><button class="btn btn-ghost" id="closeRolePicker">取消</button></div></div>';
+    modal.innerHTML = html;
+    document.body.appendChild(modal);
+    document.getElementById('roleLoginBtn').onclick = async function() {
+      var username = document.getElementById('roleUserSelect').value;
+      var password = document.getElementById('rolePassword').value;
+      var ok = await this._verifyLocalPassword(password);
+      if (!ok) {
+        document.getElementById('roleLoginError').textContent = '密码错误';
+        return;
+      }
+      modal.remove();
+      this._switchRole(username);
+    }.bind(this);
+    document.getElementById('closeRolePicker').onclick = function() { modal.remove(); };
+  }
+
+  async _verifyLocalPassword(password) {
+    try {
+      var bytes = new TextEncoder().encode(String(password));
+      var hash = await crypto.subtle.digest('SHA-256', bytes);
+      var hex = Array.from(new Uint8Array(hash)).map(function(value) { return value.toString(16).padStart(2, '0'); }).join('');
+      return hex === 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501';
+    } catch (e) {
+      return false;
+    }
+  }
+
+  _newSession() {
+    var sessionId = this._nextSessionId();
+    return {
+      version: 2,
+      id: sessionId,
+      status: 'active',
+      ownerUserId: this.currentUser.username,
+      ownerDisplayName: this.currentUser.displayName,
+      startedAt: new Date().toISOString(),
+      activeValveId: '',
+      valves: [],
+      logs: [{ timestamp: new Date().toISOString(), user: this.currentUser.username, action: 'session_created', sessionId: sessionId }]
+    };
+  }
+
+  _nextSessionId() {
+    var now = new Date();
+    var date = now.getFullYear() + ('0' + (now.getMonth() + 1)).slice(-2) + ('0' + now.getDate()).slice(-2);
+    var operator = this.currentUser.displayName.replace(/\s+/g, '');
+    var key = 'samson_session_sequence_' + operator + '_' + date;
+    var sequence = parseInt(localStorage.getItem(key) || '0', 10) + 1;
+    localStorage.setItem(key, String(sequence));
+    return operator + '_' + date + '_' + ('000' + sequence).slice(-3);
+  }
+
+  _log(action, details) {
+    if (!this.batch) return;
+    if (!Array.isArray(this.batch.logs)) this.batch.logs = [];
+    this.batch.logs.push({
+      timestamp: new Date().toISOString(),
+      user: this.currentUser.username,
+      action: action,
+      sessionId: this.batch.id,
+      valveId: this.activeValveId || '',
+      details: details || {}
+    });
+    this._saveBatch();
+  }
+
+  async _initMultiValvePrototype() {
+    try {
+      this.batch = await SamsonBatchStore.get('session');
+      if (!this.batch || this.batch.version !== 2) {
+        this.batch = this._newSession();
+        await SamsonBatchStore.set('session', this.batch);
+      }
+      this.activeValveId = this.batch.activeValveId || '';
+      if (!this.batch.ownerUserId) {
+        this.batch.ownerUserId = this.currentUser.username;
+        this.batch.ownerDisplayName = this.currentUser.displayName;
+        await SamsonBatchStore.set('session', this.batch);
+      }
+      var active = this._getActiveValve();
+      if (active) {
+        this.data = this._deepMerge(this._defaultData(), active.data || {});
+        this.currentStep = active.currentStep || 1;
+      } else {
+        this.currentStep = 1;
+      }
+      this.render();
+      if (this.currentUser.role === 'operator' && this.batch.status !== 'closed' && this.batch.valves.length) {
+        this._showResumeSessionPrompt();
+      }
+    } catch (e) {
+      this.batch = this.batch || this._newSession();
+      this.currentStep = 1;
+      this.render();
+    }
+  }
+
+  _saveBatch() {
+    if (!this.batch) return;
+    SamsonBatchStore.set('session', this.batch).catch(function() {});
+  }
+
+  _sortedBatchValves() {
+    return this.batch ? this.batch.valves.slice() : [];
+  }
+
+  _getActiveValve() {
+    if (!this.batch || !this.activeValveId) return null;
+    return this.batch.valves.find(function(v) { return v.id === this.activeValveId; }.bind(this)) || null;
+  }
+
+  _latestValve() {
+    if (!this.batch || !this.batch.valves.length) return null;
+    return this.batch.valves[this.batch.valves.length - 1];
+  }
+
+  _expectedPhotoCount(data) {
+    if (!data) return 0;
+    var count = 7;
+    var appearance = data.appearance || {};
+    if (appearance.flowDirection) count++;
+    if (appearance.pressureGauge) count++;
+    if (appearance.flangeWaterline) count += 2;
+    if (appearance.internalCleanliness) count += 2;
+    count += (appearance.otherAppearance || []).length;
+    var accessories = data.accessories || {};
+    ['positioner','filterRegulator','solenoidValve','volumeBooster','quickExhaust','limitSwitch'].forEach(function(key) {
+      var item = accessories[key];
+      if (item && item.selected) count += (item.qty || 1) * 2;
+    });
+    (accessories.others || []).forEach(function(item) { count += (item.qty || 1) * 2; });
+    return count;
+  }
+
+  _actualPhotoCount(data) {
+    if (!data) return 0;
+    var count = Object.keys(data.valvePhotos || {}).filter(function(key) { return !!data.valvePhotos[key]; }).length;
+    Object.keys(data.appearancePhotos || {}).forEach(function(key) {
+      (data.appearancePhotos[key] || []).forEach(function(item) { if (item && item.photo) count++; });
+    });
+    Object.keys(data.accessoryPhotos || {}).forEach(function(key) {
+      (data.accessoryPhotos[key] || []).forEach(function(item) {
+        if (!item) return;
+        if (item.photo) count++;
+        if (item.nameplate) count++;
+      });
+    });
+    return count;
+  }
+
+  _calculateValveStatus(valve) {
+    if (valve.reportGenerated) return 'completed';
+    var actual = this._actualPhotoCount(valve.data);
+    var expected = this._expectedPhotoCount(valve.data);
+    if (!actual && (valve.currentStep || 1) <= 1) return 'not_started';
+    if (expected > 0 && actual >= expected) return 'ready';
+    return 'in_progress';
+  }
+
+  _statusLabel(status) {
+    var zh = { not_started: '未开始', in_progress: '拍照中', ready: '待生成报告', completed: '已完成' };
+    var en = { not_started: 'Not Started', in_progress: 'In Progress', ready: 'Ready', completed: 'Completed' };
+    return (I18n.lang === 'zh' ? zh : en)[status] || status;
+  }
+
+  _persistActiveValve() {
+    var valve = this._getActiveValve();
+    if (!valve) return;
+    this.batch.activeValveId = this.activeValveId;
+    valve.data = this.data;
+    valve.currentStep = this.currentStep > 0 ? this.currentStep : valve.currentStep || 1;
+    valve.updatedAt = new Date().toISOString();
+    this._saveBatch();
+  }
+
+  _openValve(id) {
+    this._persistActiveValve();
+    var valve = this.batch.valves.find(function(item) { return item.id === id; });
+    if (!valve) return;
+    this.activeValveId = id;
+    this.data = this._deepMerge(this._defaultData(), valve.data || {});
+    this.currentStep = valve.currentStep || 1;
+    this._wizardMode = false;
+    this.render();
+  }
+
+  _openValveQueue() {
+    this._persistActiveValve();
+    this.currentStep = 0;
+    this._wizardMode = false;
+    this.render();
+  }
+
+  _continueNextValve() {
+    var valves = this._sortedBatchValves();
+    var currentIndex = valves.findIndex(function(v) { return v.id === this.activeValveId; }.bind(this));
+    var ordered = currentIndex >= 0 ? valves.slice(currentIndex + 1).concat(valves.slice(0, currentIndex + 1)) : valves;
+    var next = ordered.find(function(v) { return this._calculateValveStatus(v) !== 'completed'; }.bind(this));
+    if (next) this._openValve(next.id);
+    else this._showValveWizard();
+  }
+
+  _saveAndNextValve() {
+    var active = this._getActiveValve();
+    if (!active || !active.serverArchive) {
+      this._showToast(I18n.lang === 'zh' ? '请先生成报告并完成服务器归档' : 'Generate and archive the report first', 'error');
+      return Promise.resolve();
+    }
+    this._persistActiveValve();
+    if (this.batch && this.batch.valves.length >= 10) {
+      this._showToast(I18n.lang === 'zh' ? '单轮任务最多支持 10 台阀门' : 'A session supports up to 10 valves', 'error');
+      return Promise.resolve();
+    }
+    this.activeValveId = '';
+    this.batch.activeValveId = '';
+    this.data = this._defaultData();
+    this._appearancePromptHandled = false;
+    var previous = this._latestValve();
+    if (previous) {
+      this.data.valveType = previous.valveType || '';
+      this.data.recorder = previous.recorder || '';
+    }
+    this.currentStep = 1;
+    this._log('continue_next_valve', { nextFrom: active.serverArchive.id });
+    this._saveBatch();
+    this.render();
+    return Promise.resolve();
+  }
+
+  _prepareCurrentValve() {
+    var d = this._readStep1Form();
+    var ifs = d.contractNo;
+    var pos = this._normalizePosNumber(d.positionNo);
+    var identity = d.tagNo || d.serialNo;
+    if (!ifs || !pos || !identity) {
+      this._showToast('IFS / Pos and Tag or Serial required', 'error');
+      return null;
+    }
+    if (this.activeValveId) {
+      var active = this._getActiveValve();
+      if (active) {
+        active.ifsOrderNo = ifs;
+        active.positionNo = pos;
+        active.tagNo = d.tagNo;
+        active.serialNo = d.serialNo;
+        active.valveType = d.valveType;
+        active.recorder = d.recorder;
+        active.data = this.data;
+        this._log('valve_basic_info_updated', { valveId: active.id });
+        this._saveBatch();
+      }
+      return { isNew: false, valve: active, previous: null };
+    }
+    if (this.batch && this.batch.valves.length >= 10) {
+      this._showToast(I18n.lang === 'zh' ? '单轮任务最多支持 10 台阀门' : 'A session supports up to 10 valves', 'error');
+      return null;
+    }
+    var id = ifs + '::' + pos + '::' + identity;
+    if (this.batch.valves.some(function(v) { return v.id === id; })) {
+      this._showToast('Valve already exists: ' + id, 'error');
+      return null;
+    }
+    var previous = this._latestValve();
+    this.data.contractNo = ifs;
+    this.data.ifsNo = ifs;
+    this.data.positionNo = pos;
+    var valve = {
+      id: id, ifsOrderNo: ifs, positionNo: pos, tagNo: this.data.tagNo,
+      serialNo: this.data.serialNo, valveType: this.data.valveType,
+      recorder: this.data.recorder, currentStep: 1, reportGenerated: false,
+      data: this.data, createdAt: new Date().toISOString()
+    };
+    this.batch.valves.push(valve);
+    this.activeValveId = id;
+    this.batch.activeValveId = id;
+    this._saveBatch();
+    this._log('valve_created', { valveId: id, ifsOrderNo: ifs, positionNo: pos, tagNo: this.data.tagNo });
+    return { isNew: true, valve: valve, previous: previous };
+  }
+
+  _newValveDraft() {
+    var previous = this._latestValve();
+    return {
+      previous: previous,
+      ifsOrderNo: '',
+      positionNo: '',
+      multiple: false,
+      tagNo: '',
+      serialNo: '',
+      valveType: previous ? previous.valveType || '3248' : '3248',
+      recorder: previous ? previous.recorder || '' : '',
+      histories: SamsonStorage.loadInputHistory()
+    };
+  }
+
+  _showValveWizard() {
+    this._persistActiveValve();
+    if (this.batch && this.batch.valves.length >= 10) {
+      this._showToast(I18n.lang === 'zh' ? '单轮任务最多支持 10 台阀门' : 'A session supports up to 10 valves', 'error');
+      return;
+    }
+    this._wizardMode = true;
+    this._wizardDraft = this._newValveDraft();
+    this.currentStep = 0;
+    this.render();
+  }
+
+  _renderValveWizard(c) {
+    var d = this._wizardDraft;
+    var zh = I18n.lang === 'zh';
+    var history = d.histories || {};
+    var datalist = function(id, key) {
+      var values = (history[key] || []).slice(0, 8);
+      return '<datalist id="' + id + '">' + values.map(function(value) { return '<option value="' + this._esc(value) + '"></option>'; }.bind(this)).join('') + '</datalist>';
+    }.bind(this);
+    var html = '<div class="batch-page"><div class="batch-summary"><div><strong>' +
+      (zh ? '新增阀门' : 'Add Valve') + '</strong><small>' +
+      (zh ? '按现场实际顺序添加，不要求连续 Pos' : 'Add in any on-site order') +
+      '</small></div></div>';
+    html += '<div class="wizard-block"><label>IFS Order No.</label><input id="wizIfs" list="histIfs" value="' + this._esc(d.ifsOrderNo) + '" />' + datalist('histIfs', 'ifsOrderNo') + '</div>';
+    html += '<div class="wizard-block"><label>Pos No.</label><div class="quick-values">' + ['001','002','003','004'].map(function(value) { return '<button type="button" class="quick-chip" data-pos="' + value + '">' + value + '</button>'; }).join('') + '</div><input id="wizPos" list="histPos" value="' + this._esc(d.positionNo) + '" />' + datalist('histPos', 'positionNo') + '</div>';
+    html += '<div class="wizard-block"><label>Tag No.</label><div class="quick-values">' + ['HV-','PV-','LV-','TV-'].map(function(value) { return '<button type="button" class="quick-chip" data-prefix="' + value + '">' + value + '</button>'; }).join('') + '</div><input id="wizTag" list="histTag" value="' + this._esc(d.tagNo) + '" />' + datalist('histTag', 'tagNo') + '</div>';
+    html += '<div class="wizard-block"><label>Serial No.</label><input id="wizSerial" list="histSerial" value="' + this._esc(d.serialNo) + '" />' + datalist('histSerial', 'serialNo') + '</div>';
+    html += '<div class="wizard-block"><label>Valve Type</label><div class="quick-values">' + ['3241','3251','3248','Ltr43-2'].map(function(value) { return '<button type="button" class="quick-chip" data-type="' + value + '">' + value + '</button>'; }).join('') + '</div><input id="wizType" list="histType" value="' + this._esc(d.valveType) + '" />' + datalist('histType', 'valveType') + '</div>';
+    html += '<div class="wizard-block"><label>Recorder</label><input id="wizRecorder" list="histRecorder" value="' + this._esc(d.recorder) + '" />' + datalist('histRecorder', 'recorder') + '</div>';
+    if (d.previous) html += '<div class="wizard-note">' + (zh ? '保存后会询问是否沿用上一台拍照范围。' : 'After saving, you will be asked whether to reuse the previous photo scope.') + '</div>';
+    html += '<div class="batch-actions"><button class="btn btn-primary" id="wizardStart">' + (zh ? '开始拍照' : 'Start Capture') + '</button><button class="btn btn-ghost" id="wizardCancel">' + (zh ? '取消' : 'Cancel') + '</button></div></div>';
+    c.innerHTML = html;
+
+    var sync = function() {
+      d.ifsOrderNo = document.getElementById('wizIfs').value.trim();
+      d.positionNo = document.getElementById('wizPos').value.trim();
+    }.bind(this);
+    document.getElementById('wizIfs').oninput = sync;
+    document.getElementById('wizPos').oninput = sync;
+    c.querySelectorAll('[data-pos]').forEach(function(button) { button.onclick = function() { document.getElementById('wizPos').value = button.dataset.pos; sync(); }; });
+    c.querySelectorAll('[data-prefix]').forEach(function(button) {
+      button.onclick = function() {
+        var input = document.getElementById('wizTag');
+        var start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+        var end = typeof input.selectionEnd === 'number' ? input.selectionEnd : start;
+        input.value = input.value.slice(0, start) + button.dataset.prefix + input.value.slice(end);
+        var caret = start + button.dataset.prefix.length;
+        input.focus();
+        input.setSelectionRange(caret, caret);
+        sync();
+      };
+    });
+    c.querySelectorAll('[data-type]').forEach(function(button) { button.onclick = function() { document.getElementById('wizType').value = button.dataset.type; sync(); }; });
+    document.getElementById('wizardCancel').onclick = function() { this._wizardMode = false; this.render(); }.bind(this);
+    document.getElementById('wizardStart').onclick = function() { this._createValveFromWizard(); }.bind(this);
+    sync();
+  }
+
+  _createValveFromWizard() {
+    var d = this._wizardDraft;
+    var ifs = document.getElementById('wizIfs').value.trim();
+    var pos = this._normalizePosNumber(document.getElementById('wizPos').value);
+    var tagNo = document.getElementById('wizTag').value.trim();
+    var serialNo = document.getElementById('wizSerial').value.trim();
+    if (!ifs || !pos || (!tagNo && !serialNo)) { this._showToast('IFS / Pos and Tag or Serial required', 'error'); return; }
+    var id = ifs + '::' + pos + '::' + (tagNo || serialNo);
+    if (this.batch.valves.some(function(v) { return v.id === id; })) { this._showToast('Valve already exists: ' + id, 'error'); return; }
+    var data = this._defaultData();
+    data.contractNo = ifs; data.ifsNo = ifs; data.positionNo = pos; data.tagNo = tagNo; data.serialNo = serialNo; data.valveType = document.getElementById('wizType').value.trim(); data.recorder = document.getElementById('wizRecorder').value.trim();
+    var valve = { id: id, ifsOrderNo: ifs, positionNo: pos, multiple: false, tagNo: data.tagNo, serialNo: data.serialNo, valveType: data.valveType, recorder: data.recorder, currentStep: 1, reportGenerated: false, data: data, createdAt: new Date().toISOString() };
+    this.batch.valves.push(valve);
+    this.activeValveId = id;
+    this.batch.activeValveId = id;
+    SamsonStorage.addInputValue('ifsOrderNo', ifs);
+    SamsonStorage.addInputValue('positionNo', pos);
+    if (data.tagNo) SamsonStorage.addInputValue('tagNo', data.tagNo);
+    if (data.serialNo) SamsonStorage.addInputValue('serialNo', data.serialNo);
+    if (data.valveType) SamsonStorage.addInputValue('valveType', data.valveType);
+    if (data.recorder) SamsonStorage.addInputValue('recorder', data.recorder);
+    this._wizardMode = false;
+    this._saveBatch();
+    this.currentStep = 1;
+    this.data = data;
+    this.render();
+    if (d.previous) this._showScopeInheritancePrompt(valve, d.previous);
+  }
+
+  _showScopeInheritancePrompt(valve, previous, onDone) {
+    var zh = I18n.lang === 'zh';
+    var differentContext = String(valve.ifsOrderNo) !== String(previous.ifsOrderNo) || String(valve.positionNo) !== String(previous.positionNo);
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.id = 'scopeInheritancePrompt';
+    modal.innerHTML = '<div class="modal-content appearance-scope-prompt"><h3>' + (zh ? '拍照范围确认' : 'Photo Scope Confirmation') + '</h3><p>' +
+      (differentContext
+        ? (zh ? '当前合同或 Pos 与上一台不同，拍照范围通常可能不一样。是否仍沿用上一台拍照范围？' : 'This contract or Pos differs from the previous valve. Photo scope may differ. Reuse the previous scope?')
+        : (zh ? '当前合同和 Pos 与上一台相同，是否沿用上一台拍照范围？' : 'Same contract and Pos as the previous valve. Reuse the previous photo scope?')) +
+      '</p><div class="appearance-prompt-actions"><button class="btn btn-primary" id="scopeInheritYes">' + (zh ? '沿用上一台' : 'Reuse Previous') + '</button><button class="btn btn-outline" id="scopeInheritNo">' + (zh ? '重新选择' : 'Choose Again') + '</button></div></div>';
+    document.body.appendChild(modal);
+    var finish = function(inherit) {
+      if (inherit) {
+        valve.data.accessories = JSON.parse(JSON.stringify(previous.data.accessories || valve.data.accessories));
+        valve.data.appearance = JSON.parse(JSON.stringify(previous.data.appearance || valve.data.appearance));
+        valve.data.appearance.otherAppearance = (valve.data.appearance.otherAppearance || []).map(function(item) { return { name: item.name }; });
+        valve.data._scopeInherited = true;
+        valve.scopeInherited = true;
+        this.data = valve.data;
+      } else {
+        valve.data._scopeInherited = false;
+        valve.scopeInherited = false;
+        this.data = valve.data;
+        this._appearancePromptHandled = false;
+      }
+      this._saveBatch();
+      modal.remove();
+      if (onDone) onDone(inherit);
+      else this.render();
+    }.bind(this);
+    document.getElementById('scopeInheritYes').onclick = function() { finish(true); };
+    document.getElementById('scopeInheritNo').onclick = function() { finish(false); };
+  }
+
+  _downloadValvePdf(valve) {
+    var backupData = this.data;
+    var backupStep = this.currentStep;
+    this.data = this._deepMerge(this._defaultData(), valve.data || {});
+    this._buildPDF().then(function(doc) { doc.save(this._genReportFileName()); this.data = backupData; this.currentStep = backupStep; }.bind(this)).catch(function() { this.data = backupData; this.currentStep = backupStep; }.bind(this));
+  }
+
+  async _packageValve(valve) {
+    var backupData = this.data;
+    var backupId = this.activeValveId;
+    var backupStep = this.currentStep;
+    this.activeValveId = valve.id;
+    this.data = this._deepMerge(this._defaultData(), valve.data || {});
+    this.currentStep = 8;
+    var result = await this._saveAndDownload(this._genReportFileName());
+    if (result) {
+      valve.reportGenerated = true;
+      valve.reportGeneratedAt = new Date().toISOString();
+      valve.currentStep = 8;
+      valve.data = this.data;
+      this._saveBatch();
+    }
+    this.activeValveId = backupId;
+    this.data = backupData;
+    this.currentStep = backupStep;
+    this.render();
+  }
+
+  _renderValveQueue(c) {
+    if (this._wizardMode) { this._renderValveWizard(c); return; }
+    if (!this.batch) { c.innerHTML = '<p style="padding:30px;text-align:center;">Loading…</p>'; return; }
+    var valves = this._sortedBatchValves();
+    var completed = valves.filter(function(v) { return this._calculateValveStatus(v) === 'completed'; }.bind(this)).length;
+    var atLimit = valves.length >= 10;
+    var html = '<div class="batch-page">';
+    html += '<div class="batch-summary"><div><strong>' + (I18n.lang === 'zh' ? '一轮拍照任务' : 'Capture Session') + '</strong><small>' + new Date(this.batch.startedAt).toLocaleString() + '</small></div><span>' + completed + ' / ' + valves.length + '</span></div>';
+    html += '<div class="batch-actions"><button class="btn btn-primary" id="batchAddValve"' + (atLimit ? ' disabled' : '') + '>' + (I18n.lang === 'zh' ? '新增一台阀门' : 'Add Valve') + '</button><button class="btn btn-outline" id="batchContinue">' + (I18n.lang === 'zh' ? '继续未完成' : 'Continue Incomplete') + '</button><button class="btn btn-ghost" id="batchReset">' + (I18n.lang === 'zh' ? '结束本轮任务' : 'End Session') + '</button></div>';
+    if (!valves.length) html += '<div class="batch-empty">' + (I18n.lang === 'zh' ? '本轮任务还没有阀门，点击“新增一台阀门”开始。' : 'No valves yet. Add the first valve to start.') + '</div>';
+    valves.forEach(function(valve, index) {
+      var status = this._calculateValveStatus(valve);
+      var code = 'Pos' + this._normalizePosNumber(valve.positionNo);
+      html += '<div class="batch-valve-row ' + status + (valve.id === this.activeValveId ? ' active' : '') + '">';
+      html += '<span class="batch-order">' + (index + 1) + '</span>';
+      html += '<button class="batch-valve-main" data-valve="' + this._esc(valve.id) + '"><strong>' + code + '</strong><span>' + this._esc(valve.ifsOrderNo + ' · ' + (valve.tagNo || '')) + '</span></button>';
+      html += '<div class="batch-links"><span class="batch-status">' + this._statusLabel(status) + '</span><button class="btn btn-sm btn-outline" data-pdf="' + this._esc(valve.id) + '">PDF</button><button class="btn btn-sm btn-outline" data-zip="' + this._esc(valve.id) + '">ZIP</button></div></div>';
+    }.bind(this));
+    html += '</div>';
+    c.innerHTML = html;
+    c.querySelectorAll('[data-valve]').forEach(function(button) { button.onclick = function() { this._openValve(button.dataset.valve); }.bind(this); }.bind(this));
+    c.querySelectorAll('[data-pdf]').forEach(function(button) { button.onclick = function() { var valve = this.batch.valves.find(function(v) { return v.id === button.dataset.pdf; }.bind(this)); if (valve) this._downloadValvePdf(valve); }.bind(this); }.bind(this));
+    c.querySelectorAll('[data-zip]').forEach(function(button) { button.onclick = function() { var valve = this.batch.valves.find(function(v) { return v.id === button.dataset.zip; }.bind(this)); if (valve) this._packageValve(valve); }.bind(this); }.bind(this));
+    document.getElementById('batchAddValve').onclick = function() { this._showValveWizard(); }.bind(this);
+    document.getElementById('batchContinue').onclick = function() { this._continueNextValve(); }.bind(this);
+    document.getElementById('batchReset').onclick = function() { if (confirm(I18n.lang === 'zh' ? '结束本轮任务并开始新任务？' : 'End this session and start a new one?')) { this.batch = this._newSession(); this.activeValveId = ''; this._saveBatch(); this.render(); } }.bind(this);
+  }
+
+  _renderRoleDashboard(c) {
+    var zh = I18n.lang === 'zh';
+    var user = this.currentUser;
+    var html = '<div class="batch-page">';
+    html += '<div class="batch-summary"><div><strong>' + this._esc(user.displayName) + '</strong><small>' + this._roleLabel(user.role) + ' · 本地角色模拟</small></div></div>';
+    if (user.role === 'supervisor') {
+      html += '<div class="role-panel"><h3>' + (zh ? '全部拍照任务和报告' : 'All Capture Sessions and Reports') + '</h3>';
+      var valves = this.batch ? this.batch.valves : [];
+      if (!valves.length) html += '<p class="batch-empty">' + (zh ? '当前没有可查看的拍照任务。' : 'No capture sessions available.') + '</p>';
+      valves.forEach(function(valve) {
+        var status = this._calculateValveStatus(valve);
+        html += '<div class="completed-report-row"><div><strong>Pos' + this._normalizePosNumber(valve.positionNo) + ' · ' + this._esc(valve.tagNo || valve.serialNo) + '</strong><small>' + this._esc(valve.ifsOrderNo) + ' · ' + this._statusLabel(status) + '</small></div><div class="completed-report-actions">';
+        if (valve.serverArchive) html += '<a class="btn btn-sm btn-outline" href="' + valve.serverArchive.reportUrl + '" download>PDF</a><a class="btn btn-sm btn-outline" href="' + valve.serverArchive.downloadUrl + '" download>ZIP</a>';
+        html += '</div></div>';
+      }.bind(this));
+      html += '</div>';
+    } else if (user.role === 'admin') {
+      html += '<div class="role-panel"><h3>' + (zh ? '用户与角色管理' : 'Users & Roles') + '</h3>';
+      this.localUsers.forEach(function(item) {
+        html += '<div class="user-role-row"><div><strong>' + this._esc(item.displayName) + '</strong><small>' + item.username + '</small></div><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select></div>';
+      }.bind(this));
+      html += '<div class="batch-actions"><button class="btn btn-primary" id="adminEnterCapture">' + (zh ? '进入拍照任务' : 'Enter Capture Mode') + '</button></div></div>';
+      html += '<div class="role-panel"><h3>30 ' + (zh ? '天数据保留策略' : 'Day Retention Policy') + '</h3><p class="role-note">' + (zh ? '报告、照片、PDF 和 ZIP 从生成之日起保留 30 个自然日，到期后服务器自动彻底删除，不提供恢复。' : 'Reports, photos, PDF and ZIP are kept for 30 calendar days, then permanently deleted by the server.') + '</p></div>';
+    }
+    html += '</div>';
+    c.innerHTML = html;
+    c.querySelectorAll('[data-user-role]').forEach(function(select) {
+      select.onchange = function() {
+        var target = this.localUsers.find(function(item) { return item.username === select.dataset.userRole; });
+        if (target) { target.role = select.value; this._saveRoleDemoUsers(); this.render(); }
+      }.bind(this);
+    }.bind(this));
+    if (document.getElementById('adminEnterCapture')) document.getElementById('adminEnterCapture').onclick = function() { this._roleDashboard = false; this.currentStep = 1; this.render(); }.bind(this);
   }
 
   // ── Lang helpers ───────────────────────────
@@ -108,6 +706,13 @@ class SamsonApp {
 
   // ── Base events (lang toggle, recover, steps indicator taps) ──
   _bindBaseEvents() {
+    document.getElementById('btnRefreshCurrent').onclick = () => this._confirmDanger(
+      '刷新当前阀门', '将清空当前阀门的全部照片和拍照范围，并回到基础信息页。此操作不可撤销。', () => this._refreshCurrentValve());
+    document.getElementById('btnResetSession').onclick = () => this._confirmDanger(
+      '重置 Session', '将清空本轮 Session 的全部阀门、照片、报告和进度，并创建新的 Session。此操作不可撤销。', () => this._resetSession());
+    document.getElementById('btnCloseSession').onclick = () => this._confirmDanger(
+      '关闭 Session', '确认完成本轮拍照任务？关闭后将显示 Session ID、阀门清单和下载入口。此操作代表本轮任务结束。', () => this._closeSession());
+    document.getElementById('btnRoleSwitch').onclick = () => this._showRolePicker();
     document.getElementById('langToggle').onclick = () => {
       I18n.toggle();
       document.getElementById('langToggle').textContent = I18n.t('langSwitch');
@@ -134,10 +739,89 @@ class SamsonApp {
     return this.currentStep;
   }
 
+  _confirmDanger(title, message, action) {
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = '<div class="modal-content appearance-scope-prompt"><h3>' + this._esc(title) + '</h3><p>' + this._esc(message) + '</p><div class="appearance-prompt-actions"><button class="btn btn-primary" id="dangerConfirm">确认执行</button><button class="btn btn-ghost" id="dangerCancel">取消</button></div></div>';
+    document.body.appendChild(modal);
+    document.getElementById('dangerCancel').onclick = function() { modal.remove(); };
+    document.getElementById('dangerConfirm').onclick = function() { modal.remove(); action(); };
+  }
+
+  _refreshCurrentValve() {
+    var identity = {
+      contractNo: this.data.contractNo, ifsNo: this.data.ifsNo,
+      positionNo: this.data.positionNo, tagNo: this.data.tagNo,
+      serialNo: this.data.serialNo, valveType: this.data.valveType,
+      recorder: this.data.recorder
+    };
+    this._log('current_valve_refreshed', identity);
+      this.data = this._defaultData();
+    Object.assign(this.data, identity);
+    this._appearancePromptHandled = false;
+    this.data._scopeInherited = false;
+    this.currentStep = 1;
+    this._persistActiveValve();
+    this.render();
+  }
+
+  _archiveAuditLog() {
+    if (!this.batch) return;
+    try {
+      var audit = JSON.parse(localStorage.getItem('samson_session_audit_log') || '[]');
+      audit.push({ sessionId: this.batch.id, closedAt: new Date().toISOString(), logs: this.batch.logs || [] });
+      localStorage.setItem('samson_session_audit_log', JSON.stringify(audit.slice(-50)));
+    } catch (e) {}
+  }
+
+  _resetSession() {
+    this._log('session_reset');
+    this._archiveAuditLog();
+    this.batch = this._newSession();
+    this.activeValveId = '';
+    this.data = this._defaultData();
+    this._appearancePromptHandled = false;
+    this.currentStep = 1;
+    this._saveBatch();
+    this.render();
+  }
+
+  _closeSession() {
+    this._persistActiveValve();
+    this._log('session_closed', { valveCount: this.batch.valves.length });
+    this.batch.status = 'closed';
+    this.batch.closedAt = new Date().toISOString();
+    this._archiveAuditLog();
+    this._saveBatch();
+    var zh = I18n.lang === 'zh';
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    var html = '<div class="modal-content completed-reports-modal"><h3>' + (zh ? 'Session 已关闭' : 'Session Closed') + '</h3><p><strong>Session ID:</strong> ' + this._esc(this.batch.id) + '</p>';
+    html += '<p class="role-note">Reports and photos are kept on the server for 30 calendar days, then permanently deleted. Please download promptly.</p>';
+    if (this.batch.valves.length) {
+      this.batch.valves.forEach(function(valve) {
+        html += '<div class="completed-report-row"><div><strong>Pos' + this._normalizePosNumber(valve.positionNo) + '</strong><small>' + this._esc(valve.tagNo || valve.serialNo) + '</small></div><div class="completed-report-actions">';
+        if (valve.serverArchive) {
+          html += '<a class="btn btn-sm btn-outline" href="' + valve.serverArchive.reportUrl + '" download>PDF</a><a class="btn btn-sm btn-outline" href="' + valve.serverArchive.downloadUrl + '" download>ZIP</a>';
+        } else {
+          html += '<span>' + this._statusLabel(this._calculateValveStatus(valve)) + '</span>';
+        }
+        html += '</div></div>';
+      }.bind(this));
+    } else {
+      html += '<p class="completed-empty">' + (zh ? '本轮没有阀门记录。' : 'No valves in this session.') + '</p>';
+    }
+    html += '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="closeSessionDialog">' + (zh ? '关闭' : 'Close') + '</button></div></div>';
+    modal.innerHTML = html;
+    document.body.appendChild(modal);
+    document.getElementById('closeSessionDialog').onclick = function() { modal.remove(); };
+  }
+
   // ── Auto-save ──────────────────────────────
   _autoSave() {
     const d = Object.assign({}, this.data, { _currentStep: this.currentStep });
     SamsonStorage.saveDraft(d);
+    if (this.activeValveId && this.currentStep > 0) this._persistActiveValve();
   }
 
   // ── Main render ────────────────────────────
@@ -152,10 +836,21 @@ class SamsonApp {
 
   _renderHeader() {
     document.getElementById('appTitle').textContent = this.t('appTitle');
+    var sessionCount = this.batch ? this.batch.valves.length : 0;
     document.getElementById('appSubtitle').textContent = this.t('appSubtitle');
+    document.getElementById('sessionProgressBadge').textContent = I18n.lang === 'zh'
+      ? '本轮拍照 ' + sessionCount + ' / 10(Max)'
+      : 'Session ' + sessionCount + ' / 10(Max)';
     document.getElementById('langToggle').textContent = I18n.t('langSwitch');
+    document.getElementById('btnRoleSwitch').textContent = this.currentUser.displayName + ' · ' + this._roleLabel(this.currentUser.role);
+    document.getElementById('sessionToolbar').style.display =
+      this.currentUser.role === 'operator' && !this._roleDashboard ? 'flex' : 'none';
+    document.getElementById('btnRefreshCurrent').textContent = I18n.lang === 'zh' ? '刷新' : 'Refresh';
+    document.getElementById('btnResetSession').textContent = I18n.lang === 'zh' ? '重置' : 'Reset';
+    document.getElementById('btnCloseSession').textContent = I18n.lang === 'zh' ? '关闭' : 'Close';
 
     const dots = document.getElementById('stepIndicators');
+    dots.style.display = 'flex';
     dots.innerHTML = '';
     for (let i = 1; i <= this.totalSteps; i++) {
       const cls = i === this.currentStep ? 'active' : (i < this.currentStep ? 'done' : '');
@@ -167,7 +862,9 @@ class SamsonApp {
   _renderContent() {
     const c = document.getElementById('mainContent');
     c.innerHTML = '';
+    if (this._roleDashboard) { this._renderRoleDashboard(c); return; }
     switch (this.currentStep) {
+      case 0: this._renderValveQueue(c); break;
       case 1: this._renderStep1(c); break;
       case 2: this._renderStep2(c); break;
       case 3: this._renderStep3_appearance(c); break;
@@ -182,6 +879,7 @@ class SamsonApp {
   _renderFooter() {
     const f = document.getElementById('stepFooter');
     f.innerHTML = '';
+    if (this._roleDashboard) return;
 
     const backBtn = document.createElement('button');
     backBtn.className = 'btn btn-outline';
@@ -220,7 +918,28 @@ class SamsonApp {
   _doNextStep() {
     console.log("_doNextStep called, step:", this.currentStep);
     if (!this._validateStep()) return;
-    if (this.currentStep === 1) this._saveInputHistory();
+    if (this.currentStep === 1) {
+      this._saveInputHistory();
+      var prepared = this._prepareCurrentValve();
+      if (!prepared) return;
+      if (prepared.isNew && prepared.previous) {
+        this._showScopeInheritancePrompt(prepared.valve, prepared.previous, function(inherited) {
+          this.currentStep = inherited ? 4 : 2;
+          this.render();
+        }.bind(this));
+        return;
+      }
+      if (this.data._scopeInherited) {
+        this.currentStep = 4;
+        this.render();
+        return;
+      }
+    }
+    if ((this.currentStep === 2 || this.currentStep === 3) && this.data._scopeInherited) {
+      this.currentStep = 4;
+      this.render();
+      return;
+    }
     // Step 7→8: check for missing photos
     if (this.currentStep === 7) {
       var missing = this._collectMissingPhotos();
@@ -275,9 +994,18 @@ class SamsonApp {
   _validateStep() {
     if (this.currentStep === 1) {
       const d = this._readStep1Form();
-      console.log("_validateStep d:", d);
-      if (!d.contractNo.trim() || !d.serialNo.trim()) {
-        this._showToast(this.t("missingFields") + ": " + this.t("contractNo") + " + " + this.t("serialNo"), "error");
+      const requiredFields = [
+        ['contractNo', 'contractNo'],
+        ['positionNo', 'positionNo'],
+        ['tagNo', 'tagNo'],
+        ['valveType', 'valveType'],
+        ['recorder', 'recorder']
+      ];
+      const missing = requiredFields.filter(function(field) {
+        return !String(d[field[0]] || '').trim();
+      }).map(function(field) { return this.t(field[1]); }.bind(this));
+      if (missing.length > 0) {
+        this._showToast(this.t('missingFields') + ': ' + missing.join(' / '), 'error');
         return false;
       }
     }
@@ -296,8 +1024,8 @@ class SamsonApp {
   _renderStep1(c) {
     const history = SamsonStorage.loadInputHistory();
     const fields = [
-      { key: 'contractNo',   label: this.t('contractNo'),   required: true, scan: true },
-      { key: 'positionNo',   label: this.t('positionNo'),   required: true, scan: true },
+      { key: 'contractNo',   label: this.t('contractNo'),   required: true },
+      { key: 'positionNo',   label: this.t('positionNo'),   required: true },
       { key: 'tagNo',        label: this.t('tagNo'),        required: true },
       { key: 'serialNo',     label: this.t('serialNo'),     required: false },
       { key: 'valveType',    label: this.t('valveType'),    required: true },
@@ -309,6 +1037,16 @@ class SamsonApp {
     fields.forEach((f, idx) => {
       const val = this.data[f.key] || '';
       html += '<div class="form-group"><label>' + f.label + (f.required ? ' <span class="required">*</span>' : '') + '</label>';
+
+      if (f.key === 'positionNo') {
+        html += '<div class="quick-values">' + ['001','002','003','004'].map(function(value) { return '<button type="button" class="quick-chip" data-pos="' + value + '">' + value + '</button>'; }).join('') + '</div>';
+      }
+      if (f.key === 'tagNo') {
+        html += '<div class="quick-values">' + ['HV-','PV-','LV-','TV-'].map(function(value) { return '<button type="button" class="quick-chip" data-tag-value="' + value + '">' + value + '</button>'; }).join('') + '</div>';
+      }
+      if (f.key === 'valveType') {
+        html += '<div class="quick-values">' + ['3241','3251','3248','Ltr43-2'].map(function(value) { return '<button type="button" class="quick-chip" data-type="' + value + '">' + value + '</button>'; }).join('') + '</div>';
+      }
 
       const histVals = (history[f.key] || []).slice(0, 5);
       if (histVals.length > 0) {
@@ -322,10 +1060,6 @@ class SamsonApp {
       if (f.hint) html += '<span class="hint">' + f.hint + '</span>';
       html += '</div>';
 
-      // Insert scan button after contractNo (index 0) and positionNo (index 1)
-      if (f.scan) {
-        html += '<div class="scan-bar"><button class="btn-scan-field" data-field="' + f.key + '">📷 ' + this.t('scanBarcode') + ': ' + f.label + '</button></div>';
-      }
     });
     html += '</div>';
     c.innerHTML = html;
@@ -338,6 +1072,26 @@ class SamsonApp {
         self.data[k] = this.value;
         self._autoSave();
       };
+    });
+
+    c.querySelectorAll('[data-pos]').forEach(function(button) {
+      button.onclick = function() { self.data.positionNo = button.dataset.pos; self.render(); };
+    });
+    c.querySelectorAll('[data-tag-value]').forEach(function(button) {
+      button.onclick = function() {
+        var input = document.getElementById('input_tagNo');
+        var start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+        var end = typeof input.selectionEnd === 'number' ? input.selectionEnd : start;
+        input.value = input.value.slice(0, start) + button.dataset.tagValue + input.value.slice(end);
+        var caret = start + button.dataset.tagValue.length;
+        self.data.tagNo = input.value;
+        input.focus();
+        input.setSelectionRange(caret, caret);
+        self._autoSave();
+      };
+    });
+    c.querySelectorAll('[data-type]').forEach(function(button) {
+      button.onclick = function() { self.data.valveType = button.dataset.type; self.render(); };
     });
 
     // Bind barcode scan
@@ -734,7 +1488,7 @@ class SamsonApp {
       };
     });
 
-    if (!this._appearancePromptHandled) this._showAppearanceScopePrompt();
+    if (!this.data._scopeInherited && !this._appearancePromptHandled) this._showAppearanceScopePrompt();
   }
 
   _showAppearanceScopePrompt() {
@@ -1440,16 +2194,57 @@ class SamsonApp {
       <code>${this._esc(fileName)}</code>
       <div class="gen-actions">
         <button class="btn btn-outline" id="btnPreview">🔍 ${I18n.lang === 'zh' ? '预览报告' : 'Preview Report'}</button>
-        <button class="btn btn-primary" id="btnGenPDF">📄 ${this.t('downloadPDF')}</button>
-        <button class="btn btn-outline" id="btnGenLink">📦 ${this.t('downloadPackage')}</button>
+        <button class="btn btn-primary" id="btnGenerateReport">${I18n.lang === 'zh' ? '生成报告' : 'Generate Report'}</button>
+        <button class="btn btn-outline" id="btnDownloadReport" style="display:none;">📄 ${this.t('downloadPDF')}</button>
+        <button class="btn btn-outline" id="btnDownloadZip" style="display:none;">📦 ${this.t('downloadPackage')}</button>
+        <button class="btn btn-primary" id="btnSaveNextValve" disabled>${I18n.lang === 'zh' ? '继续拍照下一台' : 'Continue to Next Valve'}</button>
       </div>
       <div id="genStatus" class="gen-status"></div>
     </div>`;
     c.innerHTML = html;
 
     document.getElementById('btnPreview').onclick = () => this._previewReport(fileName);
-    document.getElementById('btnGenPDF').onclick = () => this._generatePDF(fileName);
-    document.getElementById('btnGenLink').onclick = () => this._saveAndDownload(fileName);
+    document.getElementById('btnGenerateReport').onclick = () => this._generateServerReport(fileName);
+    document.getElementById('btnDownloadReport').onclick = () => this._downloadArchivedFile('report', fileName);
+    document.getElementById('btnDownloadZip').onclick = () => this._downloadArchivedFile('zip', fileName);
+    document.getElementById('btnSaveNextValve').onclick = () => this._saveAndNextValve();
+
+    var status = document.getElementById('genStatus');
+    var active = this._getActiveValve();
+    if (active && active.serverArchive) {
+      if (status) status.innerHTML = '<p style="color:green;">' + (I18n.lang === 'zh' ? '照片报告已生成，暂存服务器，请尽快下载。' : 'Report generated and archived. Please download soon.') + '</p>';
+      document.getElementById('btnDownloadReport').style.display = '';
+      document.getElementById('btnDownloadZip').style.display = '';
+      document.getElementById('btnSaveNextValve').disabled = false;
+      document.getElementById('btnGenerateReport').disabled = true;
+    } else if (status) {
+      status.innerHTML = '<p>' + (I18n.lang === 'zh' ? '请先预览检查，确认无误后点击生成报告。' : 'Preview first, then generate the report.') + '</p>';
+    }
+  }
+
+  async _generateServerReport(fileName) {
+    var status = document.getElementById('genStatus');
+    if (status) status.innerHTML = '<p>' + (I18n.lang === 'zh' ? '正在生成报告并归档服务器…' : 'Generating and archiving report…') + '</p>';
+    var archive = await this._ensureServerArchive(fileName);
+    if (!archive) return;
+    if (status) status.innerHTML = '<p style="color:green;">✅ ' + (I18n.lang === 'zh' ? '照片报告已生成，暂存服务器，请尽快下载。' : 'Report generated and archived. Please download soon.') + '</p>';
+    document.getElementById('btnDownloadReport').style.display = '';
+    document.getElementById('btnDownloadZip').style.display = '';
+    document.getElementById('btnSaveNextValve').disabled = false;
+    document.getElementById('btnGenerateReport').disabled = true;
+  }
+
+  _downloadArchivedFile(type, fileName) {
+    var active = this._getActiveValve();
+    if (!active || !active.serverArchive) return;
+    var url = type === 'report' ? active.serverArchive.reportUrl : active.serverArchive.downloadUrl;
+    this._log(type === 'report' ? 'report_downloaded' : 'photos_downloaded', { reportName: active.serverArchive.reportName });
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = type === 'report' ? fileName : active.serverArchive.reportName + '.zip';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
   }
 
   _genReportFileName() {
@@ -1457,7 +2252,7 @@ class SamsonApp {
     var ds = d.getFullYear() + ('0' + (d.getMonth()+1)).slice(-2) + ('0' + d.getDate()).slice(-2);
     var reportNo = 'PR_' + this._reportFilePart(this.data.contractNo) +
       '_Pos' + this._reportFilePart(this.data.positionNo) +
-      '_' + this._reportFilePart(this.data.tagNo) + '_' + ds;
+      '_' + this._reportFilePart(this.data.tagNo || this.data.serialNo) + '_' + ds;
     return reportNo + '.pdf';
   }
 
@@ -1515,25 +2310,37 @@ class SamsonApp {
 
   async _saveAndDownload(fileName) {
     const status = document.getElementById('genStatus');
-    status.innerHTML = `<p>${this.t('generating')}</p>`;
+    if (status) status.innerHTML = `<p>${I18n.lang === 'zh' ? '正在确认服务器归档...' : 'Checking server archive...'}</p>`;
+    var archive = await this._ensureServerArchive(fileName);
+    if (!archive) return null;
+    if (status) status.innerHTML = `<p style="color:green;">✅ ${this.t('saved')}</p>`;
+    var download = document.createElement('a');
+    download.href = archive.downloadUrl;
+    download.download = archive.reportName + '.zip';
+    document.body.appendChild(download);
+    download.click();
+    download.remove();
+    return archive;
+  }
 
-    try {
-      const reportName = fileName.replace(/\.pdf$/i, '');
-      const images = {};
-      const uploads = [];
+  _ensureServerArchive(fileName) {
+    var valve = this._getActiveValve();
+    if (valve && valve.serverArchive) return Promise.resolve(valve.serverArchive);
+    if (valve && this._archivePromises[valve.id]) return this._archivePromises[valve.id];
 
-      const pdfDoc = await this._buildPDF();
+    var work = (async function() {
+      var reportName = fileName.replace(/\.pdf$/i, '');
+      var images = {};
+      var uploads = [];
+      var pdfDoc = await this._buildPDF();
       uploads.push(SamsonStorage.uploadImage(pdfDoc.output('blob'), reportName, reportName + '.pdf')
         .then(function(result) { images.reportPdf = result.filename; }));
-
       this._collectReportPhotos().forEach(function(photo) {
         uploads.push(this._uploadDataURL(photo.dataURL, reportName, photo.filename)
           .then(function(filename) { images[photo.key] = filename; }));
       }.bind(this));
-
       await Promise.all(uploads);
-
-      const meta = {
+      var meta = {
         contractNo: this.data.contractNo,
         ifsNo: this.data.ifsNo,
         positionNo: this.data.positionNo,
@@ -1541,27 +2348,58 @@ class SamsonApp {
         serialNo: this.data.serialNo,
         valveType: this.data.valveType,
         recorder: this.data.recorder,
-        accessories: this.data.accessories
+        accessories: this.data.accessories,
+        appearance: this.data.appearance
       };
+      var result = await SamsonStorage.saveReport(meta, images, reportName);
+      var archive = {
+        id: result.id,
+        reportName: result.reportName,
+        downloadUrl: result.downloadUrl,
+        reportUrl: result.reportUrl,
+        archivedAt: new Date().toISOString()
+      };
+      if (valve) {
+        valve.serverArchive = archive;
+        valve.reportGenerated = true;
+        valve.data = this.data;
+        this._log('report_generated', { reportName: reportName, archiveId: result.id });
+        this._saveBatch();
+      }
+      return archive;
+    }.bind(this))();
 
-      const result = await SamsonStorage.saveReport(meta, images, reportName);
-      const link = result.downloadUrl;
-
-      status.innerHTML = `
-        <p style="color:green;">✅ ${this.t('saved')}</p>
-        <p><a href="${link}" download>${this.t('downloadPackage')}</a></p>`;
-
-      const download = document.createElement('a');
-      download.href = link;
-      download.download = reportName + '.zip';
-      document.body.appendChild(download);
-      download.click();
-      download.remove();
-
-      SamsonStorage.clearDraft();
-    } catch (err) {
-      status.innerHTML = `<p style="color:red;">${this.t('errorUpload')}: ${err.message}</p>`;
+    if (valve) {
+      this._archivePromises[valve.id] = work;
+      work.finally(function() { delete this._archivePromises[valve.id]; }.bind(this));
     }
+    return work.catch(function(err) {
+      var status = document.getElementById('genStatus');
+      if (status) status.innerHTML = `<p style="color:red;">${this.t('errorUpload')}: ${err.message}</p>`;
+      this._showToast(this.t('errorUpload') + ': ' + err.message, 'error');
+      return null;
+    }.bind(this));
+  }
+
+  _showCompletedReports() {
+    var completed = (this.batch ? this.batch.valves : []).filter(function(valve) { return !!valve.serverArchive; });
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.id = 'completedReportsModal';
+    var zh = I18n.lang === 'zh';
+    var html = '<div class="modal-content completed-reports-modal"><h3>' + (zh ? '已完成报告' : 'Completed Reports') + '</h3>';
+    if (!completed.length) {
+      html += '<p class="completed-empty">' + (zh ? '当前还没有已归档的阀门报告。' : 'No archived valve reports yet.') + '</p>';
+    } else {
+      completed.forEach(function(valve) {
+        var code = 'Pos' + this._normalizePosNumber(valve.positionNo);
+        html += '<div class="completed-report-row"><div><strong>' + code + ' · ' + this._esc(valve.tagNo || valve.serialNo) + '</strong><small>' + this._esc(valve.ifsOrderNo) + '</small></div><div class="completed-report-actions"><a class="btn btn-sm btn-outline" href="' + valve.serverArchive.reportUrl + '" download>PDF</a><a class="btn btn-sm btn-outline" href="' + valve.serverArchive.downloadUrl + '" download>' + (zh ? '照片 ZIP' : 'Photos ZIP') + '</a></div></div>';
+      }.bind(this));
+    }
+    html += '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="closeCompletedReports">' + (zh ? '关闭' : 'Close') + '</button></div></div>';
+    modal.innerHTML = html;
+    document.body.appendChild(modal);
+    document.getElementById('closeCompletedReports').onclick = function() { modal.remove(); };
   }
 
   async _uploadDataURL(dataURL, reportName, filename) {
@@ -1580,6 +2418,7 @@ class SamsonApp {
   }
 
   async _previewReport(fileName) {
+    this._log('report_previewed', { reportName: fileName.replace(/\.pdf$/i, '') });
     var status = document.getElementById('genStatus');
     status.innerHTML = '<p>' + (I18n.lang === 'zh' ? '正在生成预览...' : 'Generating preview...') + '</p>';
     try {
@@ -1698,7 +2537,7 @@ class SamsonApp {
 
     try {
       // Header — coordinates reproduced from the approved PDF.
-      await drawContainedImage('/assets/samson-logo.jpg', {
+      await drawContainedImage('assets/samson-logo.jpg', {
         x: 513.5827, y: 14.3071, w: 56.69291, h: 56.69291
       }, null, 0);
 

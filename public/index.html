@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="theme-color" content="#003D79" />
   <title>SAMSON Photo Report — Q-2047</title>
-  <link rel="stylesheet" href="/css/app.css" />
+  <link rel="stylesheet" href="css/app.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='4' fill='%23003D79'/><text x='16' y='22' text-anchor='middle' fill='white' font-size='18' font-family='sans-serif'>S</text></svg>" />
 </head>
 <body ontouchstart="">
@@ -28,9 +28,17 @@
         <h1 id="appTitle">SAMSON Control Valve Photo Documentation</h1>
         <p id="appSubtitle">Q-2047 Photo Report System</p>
       </div>
-      <button id="langToggle" class="btn-lang">English</button>
+      <div class="header-actions">
+        <button id="btnRoleSwitch" class="btn-lang">Liu Yang · Operator</button>
+        <button id="langToggle" class="btn-lang">English</button>
+      </div>
     </div>
     <nav id="stepIndicators" class="step-indicators"></nav>
+    <div id="sessionToolbar" class="session-toolbar">
+      <button id="btnRefreshCurrent" class="session-tool">刷新</button>
+      <button id="btnResetSession" class="session-tool danger">重置</button>
+      <button id="btnCloseSession" class="session-tool">关闭</button>
+    </div>
   </header>
 
   <!-- Main content -->
@@ -38,6 +46,7 @@
 
   <!-- Footer navigation -->
   <footer id="stepFooter"></footer>
+  <div id="sessionProgressBadge" class="session-progress-badge"></div>
 
   <!-- ── Camera Modal ── -->
   <div id="cameraModal" class="modal" style="display:none;">
@@ -76,8 +85,9 @@
   </div>
 
   <!-- Load libs -->
-  <script src="/js/i18n.js"></script>
-  <script src="/js/storage.js"></script>
-  <script src="/js/app.js"></script>
+  <script src="js/i18n.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/batch-store.js"></script>
+  <script src="js/app.js"></script>
 </body>
 </html>

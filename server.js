@@ -94,7 +94,12 @@ app.post('/api/reports', async (req, res) => {
 
   const zipPath = path.join(REPORTS_DIR, `${reportId}.zip`);
   await createZip(dir, zipPath, reportId);
-  res.json({ id: reportId, reportName: reportId, downloadUrl: `/api/reports/${encodeURIComponent(reportId)}/download` });
+  res.json({
+    id: reportId,
+    reportName: reportId,
+    downloadUrl: `api/reports/${encodeURIComponent(reportId)}/download`,
+    reportUrl: `api/reports/${encodeURIComponent(reportId)}/files/${encodeURIComponent(reportId + '.pdf')}`
+  });
 });
 
 app.get('/api/reports/:id/download', (req, res) => {
@@ -102,6 +107,15 @@ app.get('/api/reports/:id/download', (req, res) => {
   const zipPath = path.join(REPORTS_DIR, `${reportId}.zip`);
   if (!reportId || !fs.existsSync(zipPath)) return res.status(404).json({ error: 'Not found' });
   res.download(zipPath, `${reportId}.zip`);
+});
+
+app.get('/api/reports/:id/files/:filename', (req, res) => {
+  const reportId = safeName(req.params.id, '');
+  const filename = safeName(req.params.filename, '');
+  if (!reportId || !filename) return res.status(404).json({ error: 'Not found' });
+  const filePath = path.join(reportDirectory(reportId), filename);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
+  res.download(filePath, filename);
 });
 
 // ── API: Get report by ID

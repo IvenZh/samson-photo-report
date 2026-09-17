@@ -1,6 +1,6 @@
 // SAMSON Photo Report — Local storage & server sync
 window.SamsonStorage = {
-  API_BASE: '',
+  API_BASE: '.',
 
   // ── Project data (localStorage + auto-save draft)
   saveDraft(data) {
