@@ -462,3 +462,16 @@ input, select, button { -webkit-appearance: none; appearance: none; }
   color: var(--blue);
   font-weight: 500;
 }
+
+.appearance-scope-prompt p {
+  color: var(--gray-600);
+  font-size: .88rem;
+  line-height: 1.6;
+  margin-bottom: 18px;
+}
+.appearance-prompt-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}

@@ -733,6 +733,46 @@ class SamsonApp {
         self.data.appearance.otherAppearance = others; self._autoSave();
       };
     });
+
+    if (!this._appearancePromptHandled) this._showAppearanceScopePrompt();
+  }
+
+  _showAppearanceScopePrompt() {
+    var existing = document.getElementById('appearanceScopePrompt');
+    if (existing) existing.remove();
+
+    var modal = document.createElement('div');
+    modal.id = 'appearanceScopePrompt';
+    modal.className = 'modal';
+    modal.innerHTML = `
+      <div class="modal-content appearance-scope-prompt">
+        <h3>${this.t('appearancePromptTitle')}</h3>
+        <p>${this.t('appearancePromptMessage')}</p>
+        <div class="appearance-prompt-actions">
+          <button class="btn btn-primary" id="appearancePromptChoose">${this.t('appearancePromptChoose')}</button>
+          <button class="btn btn-outline" id="appearancePromptSkip">${this.t('appearancePromptSkip')}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(modal);
+
+    var choose = document.getElementById('appearancePromptChoose');
+    var skip = document.getElementById('appearancePromptSkip');
+    choose.onclick = function() {
+      this._appearancePromptHandled = true;
+      modal.remove();
+    }.bind(this);
+    skip.onclick = function() {
+      this._appearancePromptHandled = true;
+      this.data.appearance.flowDirection = false;
+      this.data.appearance.pressureGauge = false;
+      this.data.appearance.flangeWaterline = false;
+      this.data.appearance.internalCleanliness = false;
+      this.data.appearance.otherAppearance = [];
+      this.data.appearancePhotos = {};
+      modal.remove();
+      this.currentStep = 4;
+      this.render();
+    }.bind(this);
   }
 
 
