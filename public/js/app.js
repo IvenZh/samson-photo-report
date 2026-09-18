@@ -11,6 +11,7 @@ class SamsonApp {
       this.batch = null;
       this.activeValveId = '';
       this._archivePromises = {};
+      this._authenticated = false;
       this.localUsers = this._loadRoleDemoUsers();
       var savedUser = localStorage.getItem('samson_role_demo_current') || 'liuyang';
       this.currentUser = this.localUsers.find(function(user) { return user.username === savedUser; }) || this.localUsers[0];
@@ -62,12 +63,20 @@ class SamsonApp {
   _loadRoleDemoUsers() {
     var defaults = [
       { username: 'liuyang', displayName: 'Liu Yang', role: 'operator' },
+      { username: 'liuzhixin', displayName: 'Liu Zhixin', role: 'operator' },
+      { username: 'yanbo', displayName: 'Yan Bo', role: 'operator' },
+      { username: 'zhanglin', displayName: 'Zhang Lin', role: 'operator' },
+      { username: 'zhonghaitao', displayName: 'Zhong Haitao', role: 'operator' },
       { username: 'sunqiang', displayName: 'Sun Qiang', role: 'supervisor' },
       { username: 'zhaofeng', displayName: 'Zhao Feng', role: 'admin' }
     ];
     try {
       var saved = JSON.parse(localStorage.getItem('samson_role_demo_users') || 'null');
-      return Array.isArray(saved) && saved.length ? saved : defaults;
+      if (!Array.isArray(saved) || !saved.length) return defaults;
+      return defaults.map(function(user) {
+        var match = saved.find(function(item) { return item.username === user.username; });
+        return match ? Object.assign({}, user, { role: match.role || user.role }) : user;
+      });
     } catch (e) { return defaults; }
   }
 
@@ -83,6 +92,7 @@ class SamsonApp {
     var user = this.localUsers.find(function(item) { return item.username === username; });
     if (!user) return;
     this.currentUser = user;
+    this._authenticated = true;
     localStorage.setItem('samson_role_demo_current', username);
     this._roleDashboard = user.role !== 'operator';
     if (!this._roleDashboard && this.batch && this.batch.ownerUserId === user.username) {
@@ -98,6 +108,7 @@ class SamsonApp {
       this.currentStep = this._roleDashboard ? 0 : 1;
     }
     this.render();
+    if (!this._roleDashboard && this.batch && this.batch.valves.length) this._showResumeSessionPrompt();
   }
 
   _showResumeSessionPrompt() {
@@ -135,7 +146,9 @@ class SamsonApp {
       html += '<option value="' + user.username + '"' + (user.username === this.currentUser.username ? ' selected' : '') + '>' + this._esc(user.displayName) + ' · ' + this._roleLabel(user.role) + '</option>';
     }.bind(this));
     html += '</select></div><div class="wizard-block"><label>密码</label><input id="rolePassword" type="password" autocomplete="current-password" /></div><div id="roleLoginError" class="role-login-error"></div>';
-    html += '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="roleLoginBtn">登录</button><button class="btn btn-ghost" id="closeRolePicker">取消</button></div></div>';
+    html += '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="roleLoginBtn">登录</button>';
+    if (this._authenticated) html += '<button class="btn btn-ghost" id="closeRolePicker">取消</button>';
+    html += '</div></div>';
     modal.innerHTML = html;
     document.body.appendChild(modal);
     document.getElementById('roleLoginBtn').onclick = async function() {
@@ -149,7 +162,7 @@ class SamsonApp {
       modal.remove();
       this._switchRole(username);
     }.bind(this);
-    document.getElementById('closeRolePicker').onclick = function() { modal.remove(); };
+    if (document.getElementById('closeRolePicker')) document.getElementById('closeRolePicker').onclick = function() { modal.remove(); };
   }
 
   async _verifyLocalPassword(password) {
@@ -223,7 +236,9 @@ class SamsonApp {
         this.currentStep = 1;
       }
       this.render();
-      if (this.currentUser.role === 'operator' && this.batch.status !== 'closed' && this.batch.valves.length) {
+      if (!this._authenticated) {
+        this._showRolePicker();
+      } else if (this.currentUser.role === 'operator' && this.batch.status !== 'closed' && this.batch.valves.length) {
         this._showResumeSessionPrompt();
       }
     } catch (e) {
@@ -2205,7 +2220,7 @@ class SamsonApp {
       <div class="gen-actions">
         <button class="btn btn-outline" id="btnPreview">🔍 ${I18n.lang === 'zh' ? '预览报告' : 'Preview Report'}</button>
         <button class="btn btn-primary" id="btnGenerateReport">${I18n.lang === 'zh' ? '生成报告' : 'Generate Report'}</button>
-        <button class="btn btn-primary" id="btnSaveNextValve" disabled>${I18n.lang === 'zh' ? '继续拍照下一台' : 'Continue to Next Valve'}</button>
+        <button class="btn btn-primary is-disabled" id="btnSaveNextValve" data-disabled="true">${I18n.lang === 'zh' ? '继续拍照下一台' : 'Continue to Next Valve'}</button>
       </div>
       <div id="genStatus" class="gen-status"></div>
     </div>`;
@@ -2219,11 +2234,12 @@ class SamsonApp {
     var active = this._getActiveValve();
     if (active && active.serverArchive) {
       if (status) status.innerHTML = '<p style="color:green;">' + (I18n.lang === 'zh' ? '照片报告已生成，暂存服务器，请尽快下载。' : 'Report generated and archived. Please download soon.') + '</p>';
-      document.getElementById('btnSaveNextValve').disabled = false;
+      document.getElementById('btnSaveNextValve').classList.remove('is-disabled');
+      document.getElementById('btnSaveNextValve').setAttribute('data-disabled', 'false');
       document.getElementById('btnGenerateReport').disabled = true;
       this._updateCompletedButton();
     } else if (status) {
-      status.innerHTML = '<p>' + (I18n.lang === 'zh' ? '请先预览检查，确认无误后点击生成报告。' : 'Preview first, then generate the report.') + '</p>';
+      status.innerHTML = '<p>' + (I18n.lang === 'zh' ? '请先预览报告，然后生成报告，最后继续下一台拍照。' : 'Preview the report first, then generate it, and finally continue to the next valve.') + '</p>';
     }
   }
 
@@ -2233,7 +2249,8 @@ class SamsonApp {
     var archive = await this._ensureServerArchive(fileName);
     if (!archive) return;
     if (status) status.innerHTML = '<p style="color:green;">✅ ' + (I18n.lang === 'zh' ? '照片报告已生成，暂存服务器，请尽快下载。' : 'Report generated and archived. Please download soon.') + '</p>';
-    document.getElementById('btnSaveNextValve').disabled = false;
+    document.getElementById('btnSaveNextValve').classList.remove('is-disabled');
+    document.getElementById('btnSaveNextValve').setAttribute('data-disabled', 'false');
     document.getElementById('btnGenerateReport').disabled = true;
     this._updateCompletedButton();
   }

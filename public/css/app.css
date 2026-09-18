@@ -185,6 +185,7 @@ body {
   min-height: 44px;
   white-space: nowrap;
 }
+.btn.is-disabled { opacity: .45; cursor: not-allowed; }
 .btn-primary { background: var(--blue); color: #fff; }
 .btn-primary:active { background: var(--blue-light); }
 .btn-outline { background: #fff; color: var(--blue); border: 1px solid var(--blue); }
