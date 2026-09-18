@@ -26,19 +26,47 @@ const DEFAULT_PASSWORD_HASH = 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78
 [UPLOADS_DIR, REPORTS_DIR, SESSIONS_DIR, BACKUPS_DIR, CACHE_DIR, DATA_DIR].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
 
 const DEFAULT_USERS = [
-  { username: 'liuyang', displayName: 'Liu Yang', role: 'operator', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH },
-  { username: 'liuzhixin', displayName: 'Liu Zhixin', role: 'operator', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH },
-  { username: 'yanbo', displayName: 'Yan Bo', role: 'operator', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH },
-  { username: 'zhanglin', displayName: 'Zhang Lin', role: 'operator', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH },
-  { username: 'zhonghaitao', displayName: 'Zhong Haitao', role: 'operator', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH },
-  { username: 'sunqiang', displayName: 'Sun Qiang', role: 'supervisor', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH },
-  { username: 'zhaofeng', displayName: 'Zhao Feng', role: 'admin', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH }
+  { username: 'Liu Yang', displayName: 'Liu Yang', role: 'operator', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH },
+  { username: 'Liu Zhixin', displayName: 'Liu Zhixin', role: 'operator', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH },
+  { username: 'Yan Bo', displayName: 'Yan Bo', role: 'operator', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH },
+  { username: 'Zhang Lin', displayName: 'Zhang Lin', role: 'operator', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH },
+  { username: 'Zhong Haitao', displayName: 'Zhong Haitao', role: 'operator', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH },
+  { username: 'Sun Qiang', displayName: 'Sun Qiang', role: 'supervisor', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH },
+  { username: 'Zhao Feng', displayName: 'Zhao Feng', role: 'admin', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH }
 ];
+
+function normalizedIdentity(value) {
+  return String(value || '').trim().normalize('NFKC').toLowerCase();
+}
+
+function findUserByUsername(users, username) {
+  return users.find(function(user) { return user.username === username; }) || null;
+}
+
+function findUserByNormalizedUsername(users, username) {
+  var key = normalizedIdentity(username);
+  return users.find(function(user) { return normalizedIdentity(user.username) === key; }) || null;
+}
 
 function loadUsers() {
   try {
     var users = JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
-    if (Array.isArray(users) && users.length) return users.map(function(user) { return Object.assign({}, user, { sessionVersion: Number(user.sessionVersion || 0) }); });
+    if (Array.isArray(users) && users.length) {
+      var changed = false;
+      var migrated = users.map(function(user) {
+        var next = Object.assign({}, user, { sessionVersion: Number(user.sessionVersion || 0) });
+        var displayName = String(next.displayName || '').trim();
+        var compactDisplayName = displayName.replace(/\s+/g, '').toLowerCase();
+        if (displayName && normalizedIdentity(next.username) === compactDisplayName && next.username !== displayName) {
+          next.username = displayName;
+          changed = true;
+        }
+        if (!displayName || normalizedIdentity(displayName) === normalizedIdentity(next.username)) next.displayName = next.username;
+        return next;
+      });
+      if (changed) fs.writeFileSync(USERS_FILE, JSON.stringify(migrated, null, 2));
+      return migrated;
+    }
   } catch (e) {}
   fs.writeFileSync(USERS_FILE, JSON.stringify(DEFAULT_USERS, null, 2));
   return DEFAULT_USERS.slice();
@@ -49,7 +77,7 @@ function saveUsers(users) {
 }
 
 function publicUser(user) {
-  return { username: user.username, displayName: user.displayName, role: user.role, enabled: user.enabled !== false };
+  return { username: user.username, displayName: user.username, role: user.role, enabled: user.enabled !== false };
 }
 
 function sessionSecret() {
@@ -133,7 +161,7 @@ function reportMeta(reportId) {
 function canAccessReport(user, reportId) {
   if (!user || user.role !== 'operator') return !!user;
   var meta = reportMeta(reportId);
-  return !!meta && (meta.operatorId === user.username || meta.operatorName === user.displayName);
+  return !!meta && (normalizedIdentity(meta.operatorId) === normalizedIdentity(user.username) || normalizedIdentity(meta.operatorName) === normalizedIdentity(user.username));
 }
 
 function safeName(value, fallback) {
@@ -262,9 +290,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── API: Authentication
 app.post('/api/auth/login', (req, res) => {
-  var username = String((req.body && req.body.username) || '').trim().normalize('NFKC').toLowerCase();
+  var username = String((req.body && req.body.username) || '').trim().normalize('NFKC');
   var suppliedHash = String((req.body && req.body.passwordHash) || '').trim().toLowerCase();
-  var user = loadUsers().find(function(item) { return item.username === username; });
+  var user = findUserByUsername(loadUsers(), username);
   var expectedHash = user && user.enabled !== false ? String(user.passwordHash || '') : '';
   var supplied = Buffer.from(suppliedHash);
   var expected = Buffer.from(expectedHash);
@@ -299,16 +327,15 @@ app.get('/api/admin/users', requireRole('admin'), (req, res) => {
 });
 
 app.post('/api/admin/users', requireRole('admin'), (req, res) => {
-  var username = String((req.body && req.body.username) || '').trim().normalize('NFKC').toLowerCase();
-  var displayName = String((req.body && req.body.displayName) || '').trim() || username;
+  var username = String((req.body && req.body.username) || '').trim().normalize('NFKC');
   var role = String((req.body && req.body.role) || '').trim();
   var passwordHash = String((req.body && req.body.passwordHash) || '').trim().toLowerCase();
-  if (!/^[\p{L}\p{N}._-]{2,32}$/u.test(username)) return res.status(400).json({ error: 'Invalid username' });
+  if (!/^[\p{L}\p{N}._-]+(?: +[\p{L}\p{N}._-]+)*$/u.test(username) || username.length < 2 || username.length > 32) return res.status(400).json({ error: 'Invalid username' });
   if (['operator', 'supervisor', 'admin'].indexOf(role) < 0) return res.status(400).json({ error: 'Invalid role' });
   if (!/^[a-f0-9]{64}$/.test(passwordHash)) return res.status(400).json({ error: 'Invalid password' });
   var users = loadUsers();
-  if (users.some(function(user) { return user.username === username; })) return res.status(409).json({ error: 'Username exists' });
-  var user = { username: username, displayName: displayName, role: role, enabled: true, passwordHash: passwordHash };
+  if (findUserByNormalizedUsername(users, username)) return res.status(409).json({ error: 'Username exists' });
+  var user = { username: username, displayName: username, role: role, enabled: true, passwordHash: passwordHash };
   users.push(user);
   saveUsers(users);
   appendAudit({ action: 'user_created', actor: req.user.displayName, role: req.user.role, username: username, targetRole: role });
@@ -317,15 +344,15 @@ app.post('/api/admin/users', requireRole('admin'), (req, res) => {
 
 app.patch('/api/admin/users/:username', requireRole('admin'), (req, res) => {
   var users = loadUsers();
-  var user = users.find(function(item) { return item.username === req.params.username; });
+  var user = findUserByUsername(users, req.params.username);
   if (!user) return res.status(404).json({ error: 'User not found' });
-  if (req.body && typeof req.body.displayName === 'string' && req.body.displayName.trim()) user.displayName = req.body.displayName.trim();
+  if (req.body && typeof req.body.displayName === 'string' && req.body.displayName.trim()) user.displayName = user.username;
   if (req.body && typeof req.body.role === 'string' && ['operator', 'supervisor', 'admin'].indexOf(req.body.role) >= 0) {
-    if (user.username === req.user.username && req.body.role !== 'admin') return res.status(400).json({ error: 'Cannot remove current admin role' });
+    if (normalizedIdentity(user.username) === normalizedIdentity(req.user.username) && req.body.role !== 'admin') return res.status(400).json({ error: 'Cannot remove current admin role' });
     user.role = req.body.role;
   }
   if (req.body && typeof req.body.enabled === 'boolean') {
-    if (!req.body.enabled && user.username === req.user.username) return res.status(400).json({ error: 'Cannot disable current account' });
+    if (!req.body.enabled && normalizedIdentity(user.username) === normalizedIdentity(req.user.username)) return res.status(400).json({ error: 'Cannot disable current account' });
     if (!req.body.enabled && user.enabled !== false) user.sessionVersion = Number(user.sessionVersion || 0) + 1;
     user.enabled = req.body.enabled;
   }
@@ -341,10 +368,10 @@ app.patch('/api/admin/users/:username', requireRole('admin'), (req, res) => {
 });
 
 app.delete('/api/admin/users/:username', requireRole('admin'), (req, res) => {
-  if (req.params.username === req.user.username) return res.status(400).json({ error: 'Cannot delete current account' });
   var users = loadUsers();
-  var user = users.find(function(item) { return item.username === req.params.username; });
+  var user = findUserByUsername(users, req.params.username);
   if (!user) return res.status(404).json({ error: 'User not found' });
+  if (normalizedIdentity(user.username) === normalizedIdentity(req.user.username)) return res.status(400).json({ error: 'Cannot delete current account' });
   saveUsers(users.filter(function(item) { return item.username !== user.username; }));
   appendAudit({ action: 'user_deleted', actor: req.user.displayName, role: req.user.role, username: user.username, targetRole: user.role });
   res.json({ deleted: user.username });
@@ -382,7 +409,7 @@ app.post('/api/reports', requireRole('operator', 'admin'), async (req, res) => {
   if (!meta || !images) return res.status(400).json({ error: 'Missing meta or images' });
   const reportId = safeName(reportName, uuidv4());
   meta.operatorId = req.user.username;
-  meta.operatorName = req.user.displayName;
+  meta.operatorName = req.user.username;
   if (req.user.role === 'operator' && meta.sessionId) {
     var sessionReports = readReports().filter(function(report) { return report.operatorId === req.user.username && report.sessionId === meta.sessionId; });
     if (sessionReports.length >= 10) return res.status(409).json({ error: 'Session valve limit reached' });

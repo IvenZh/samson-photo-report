@@ -63,13 +63,13 @@ class SamsonApp {
 
   _loadRoleDemoUsers() {
     var defaults = [
-      { username: 'liuyang', displayName: 'Liu Yang', role: 'operator', enabled: true },
-      { username: 'liuzhixin', displayName: 'Liu Zhixin', role: 'operator', enabled: true },
-      { username: 'yanbo', displayName: 'Yan Bo', role: 'operator', enabled: true },
-      { username: 'zhanglin', displayName: 'Zhang Lin', role: 'operator', enabled: true },
-      { username: 'zhonghaitao', displayName: 'Zhong Haitao', role: 'operator', enabled: true },
-      { username: 'sunqiang', displayName: 'Sun Qiang', role: 'supervisor', enabled: true },
-      { username: 'zhaofeng', displayName: 'Zhao Feng', role: 'admin', enabled: true }
+      { username: 'Liu Yang', displayName: 'Liu Yang', role: 'operator', enabled: true },
+      { username: 'Liu Zhixin', displayName: 'Liu Zhixin', role: 'operator', enabled: true },
+      { username: 'Yan Bo', displayName: 'Yan Bo', role: 'operator', enabled: true },
+      { username: 'Zhang Lin', displayName: 'Zhang Lin', role: 'operator', enabled: true },
+      { username: 'Zhong Haitao', displayName: 'Zhong Haitao', role: 'operator', enabled: true },
+      { username: 'Sun Qiang', displayName: 'Sun Qiang', role: 'supervisor', enabled: true },
+      { username: 'Zhao Feng', displayName: 'Zhao Feng', role: 'admin', enabled: true }
     ];
     return defaults;
   }
@@ -153,7 +153,7 @@ class SamsonApp {
     modal.id = 'rolePickerModal';
     var zh = I18n.lang === 'zh';
     var html = '<div class="modal-content role-picker-modal"><h3>' + (zh ? '登录' : 'Login') + '</h3>';
-    html += '<div class="wizard-block"><label>' + (zh ? '用户名' : 'Username') + '</label><input id="roleUsername" type="text" autocomplete="username" value="" autofocus /></div>';
+    html += '<div class="wizard-block"><label>' + (zh ? '用户名' : 'Username') + '</label><input id="roleUsername" type="text" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" value="" autofocus /></div>';
     html += '<div class="wizard-block"><label>' + (zh ? '密码' : 'Password') + '</label><input id="rolePassword" type="password" autocomplete="current-password" value="" /></div><div id="roleLoginError" class="role-login-error"></div>';
     html += '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="roleLoginBtn">' + (zh ? '登录' : 'Login') + '</button>';
     if (this._authenticated) html += '<button class="btn btn-ghost" id="closeRolePicker">' + (zh ? '取消' : 'Cancel') + '</button>';
@@ -476,7 +476,7 @@ class SamsonApp {
       tagNo: '',
       serialNo: '',
       valveType: previous ? previous.valveType || '3248' : '3248',
-      recorder: previous ? previous.recorder || '' : '',
+      recorder: this.currentUser.username,
       histories: SamsonStorage.loadInputHistory()
     };
   }
@@ -755,20 +755,20 @@ class SamsonApp {
     var modal = document.createElement('div');
     modal.className = 'modal';
     modal.innerHTML = '<div class="modal-content role-picker-modal"><h3>' + (zh ? '增加账户' : 'Add User') + '</h3>' +
-      '<div class="wizard-block"><label>' + (zh ? '用户名' : 'Username') + '</label><input id="newUsername" autocomplete="off" spellcheck="false" placeholder="' + (zh ? '例如：liuyang 或 刘洋' : 'e.g. liuyang') + '" /></div>' +
+      '<div class="wizard-block"><label>' + (zh ? '用户名' : 'Username') + '</label><input id="newUsername" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="' + (zh ? '例如：Zhong Haitao' : 'e.g. Zhong Haitao') + '" /></div>' +
       '<div class="wizard-block"><label>' + (zh ? '密码' : 'Password') + '</label><input id="newPassword" type="password" autocomplete="new-password" /></div>' +
       '<div class="wizard-block"><label>' + (zh ? '角色' : 'Role') + '</label><select id="newRole"><option value="operator">Operator</option><option value="supervisor">Supervisor</option><option value="admin">Admin</option></select></div>' +
       '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="saveNewUser">' + (zh ? '保存' : 'Save') + '</button><button class="btn btn-ghost" id="cancelNewUser">' + (zh ? '取消' : 'Cancel') + '</button></div></div>';
     document.body.appendChild(modal);
     document.getElementById('cancelNewUser').onclick = function() { modal.remove(); };
     document.getElementById('saveNewUser').onclick = async function() {
-      var username = document.getElementById('newUsername').value.trim().normalize('NFKC').toLowerCase();
+      var username = document.getElementById('newUsername').value.trim().normalize('NFKC');
       var displayName = username;
       var password = document.getElementById('newPassword').value;
       var role = document.getElementById('newRole').value;
       if (!username || !password) { this._showToast(zh ? '请填写用户名、密码和角色' : 'Username, password and role are required', 'error'); return; }
-      if (!/^[\p{L}\p{N}._-]{2,32}$/u.test(username)) { this._showToast(zh ? '用户名需为 2-32 个中文、字母、数字、点、下划线或连字符' : 'Username must be 2-32 letters, numbers, dots, underscores or hyphens', 'error'); return; }
-      if (this.localUsers.some(function(item) { return item.username === username; })) { this._showToast(zh ? '用户名已存在' : 'Username already exists', 'error'); return; }
+      if (!/^[\p{L}\p{N}._-]+(?: +[\p{L}\p{N}._-]+)*$/u.test(username) || username.length < 2 || username.length > 32) { this._showToast(zh ? '用户名需为 2-32 个中文、字母、数字、点、下划线、连字符或空格' : 'Username must be 2-32 characters and may include spaces', 'error'); return; }
+      if (this.localUsers.some(function(item) { return String(item.username).trim().normalize('NFKC').toLowerCase() === username.toLowerCase(); })) { this._showToast(zh ? '用户名已存在' : 'Username already exists', 'error'); return; }
       var passwordHash = await this._hashLocalPassword(password);
       try {
         var response = await fetch('api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username, displayName: displayName, role: role, passwordHash: passwordHash }) });
@@ -1502,6 +1502,7 @@ class SamsonApp {
   // ═══════════════════════════════════════════
   _renderStep1(c) {
     const history = SamsonStorage.loadInputHistory();
+    if (this.currentUser && this.currentUser.username) this.data.recorder = this.currentUser.username;
     const fields = [
       { key: 'contractNo',   label: this.t('contractNo'),   required: true },
       { key: 'positionNo',   label: this.t('positionNo'),   required: true },
@@ -1528,13 +1529,14 @@ class SamsonApp {
       }
 
       const histVals = (history[f.key] || []).slice(0, 5);
+      const readonly = f.key === 'recorder' ? ' readonly' : '';
       if (histVals.length > 0) {
-        html += '<input type="text" id="input_' + f.key + '" value="' + this._esc(val) + '" list="datalist_' + f.key + '" autocomplete="off" />';
+        html += '<input type="text" id="input_' + f.key + '" value="' + this._esc(val) + '" list="datalist_' + f.key + '" autocomplete="off"' + readonly + ' />';
         try {
         html += '<datalist id="datalist_' + f.key + '">' + histVals.filter(function(v){ return typeof v==='string' && v.length<200; }).map(function(v) { return '<option value="' + this._esc(v) + '">'; }.bind(this)).join('') + '</datalist>';
       } catch(e) {}
       } else {
-        html += '<input type="text" id="input_' + f.key + '" value="' + this._esc(val) + '" autocomplete="off" />';
+        html += '<input type="text" id="input_' + f.key + '" value="' + this._esc(val) + '" autocomplete="off"' + readonly + ' />';
       }
       if (f.hint) html += '<span class="hint">' + f.hint + '</span>';
       html += '</div>';
@@ -1587,7 +1589,7 @@ class SamsonApp {
     const d = {};
     ['contractNo','positionNo','tagNo','serialNo','valveType','recorder'].forEach(k => {
       const el = document.getElementById('input_' + k);
-      d[k] = el ? el.value.trim() : (this.data[k] || '');
+      d[k] = k === 'recorder' ? this.currentUser.username : (el ? el.value.trim() : (this.data[k] || ''));
       this.data[k] = d[k];
     });
     return d;
