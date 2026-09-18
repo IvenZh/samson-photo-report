@@ -1124,7 +1124,7 @@ class SamsonApp {
     document.getElementById('btnRoleSwitch').textContent = this.currentUser.displayName + ' · ' + this._roleLabel(this.currentUser.role);
     this._updateCompletedButton();
     var operatorSessionActive = this._authenticated && this.currentUser.role === 'operator' && !this._roleDashboard &&
-      this.batch && this.batch.status !== 'closed' && this.batch.valves.length > 0;
+      this.batch && this.batch.status !== 'closed';
     document.getElementById('btnCompletedReports').style.display = operatorSessionActive ? '' : 'none';
     document.getElementById('sessionProgressBadge').style.display = operatorSessionActive ? '' : 'none';
     document.getElementById('sessionToolbar').style.display =
