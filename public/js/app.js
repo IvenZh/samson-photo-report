@@ -871,14 +871,13 @@ class SamsonApp {
         getJSON('api/admin/dashboard/operator-workload'),
         getJSON('api/admin/dashboard/recent-activity'),
         getJSON('api/admin/dashboard/trends?days=' + days),
-        getJSON('api/admin/dashboard/activity-summary?days=' + days),
         getJSON('api/admin/dashboard/storage'),
         getJSON('api/admin/dashboard/retention'),
         getJSON('api/admin/dashboard/recent-sessions'),
         getJSON('api/admin/dashboard/recent-reports')
       ]);
-      var summary = responses[0], workload = responses[1], activity = responses[2], trends = responses[3], actions = responses[4];
-      var storage = responses[5], retention = responses[6], recentSessions = responses[7], recentReports = responses[8];
+      var summary = responses[0], workload = responses[1], activity = responses[2], trends = responses[3];
+      var storage = responses[4], retention = responses[5], recentSessions = responses[6], recentReports = responses[7];
       var cutoff = days === 'all' ? 0 : Date.now() - Number(days) * 86400000;
       var withinDays = function(item) {
         if (days === 'all') return true;
@@ -886,7 +885,6 @@ class SamsonApp {
       };
       var maxTrend = Math.max.apply(null, trends.map(function(item) { return item.reports; }).concat([1]));
       var maxWorkload = Math.max.apply(null, workload.map(function(item) { return item.reports; }).concat([1]));
-      var maxAction = Math.max.apply(null, actions.map(function(item) { return item.count; }).concat([1]));
       var html = '<div class="admin-overview-toolbar"><select id="adminOverviewRange"><option value="7"' + (days === '7' ? ' selected' : '') + '>' + (zh ? '7天' : '7 days') + '</option><option value="30"' + (days === '30' ? ' selected' : '') + '>' + (zh ? '1个月' : '1 month') + '</option><option value="all"' + (days === 'all' ? ' selected' : '') + '>' + (zh ? '全部' : 'all') + '</option></select></div>';
       if (retention.expiring.length) {
         html += '<div class="admin-alert-grid"><div class="admin-alert warning"><strong>' + retention.expiring.length + '</strong><span>' + (zh ? '份报告将在 7 天内自动删除' : 'reports will be deleted within 7 days') + '</span></div></div>';
@@ -900,7 +898,6 @@ class SamsonApp {
         '<div class="admin-card"><strong>' + retention.expiring.length + '</strong><span>' + (zh ? '7天内到期' : 'Expiring Soon') + '</span></div></div>';
       html += '<div class="admin-chart-grid"><div class="admin-chart"><h4>' + (zh ? '报告趋势' : 'Report Trend') + '</h4><div class="admin-scroll-h"><div class="mini-bar-chart">' + trends.map(function(item) { return '<div class="mini-bar-item"><span>' + item.reports + '</span><i style="height:' + Math.round((item.reports / maxTrend) * 100) + '%"></i><small>' + item.date.slice(5) + '</small></div>'; }).join('') + '</div></div></div>';
       html += '<div class="admin-chart"><h4>' + (zh ? 'Operator 工作量' : 'Operator Workload') + '</h4><div class="admin-scroll-list"><div class="admin-hbar-list">' + workload.slice(0, 8).map(function(item) { return '<div class="admin-hbar-row"><strong>' + this._esc(item.operator) + '</strong><div class="admin-hbar-track"><i style="width:' + Math.round((item.reports / maxWorkload) * 100) + '%"></i></div><span>' + item.reports + '</span></div>'; }.bind(this)).join('') + '</div></div></div></div>';
-      html += '<div class="admin-chart-grid"><div class="admin-chart"><h4>' + (zh ? '动作分布' : 'Action Distribution') + '</h4><div class="admin-scroll-list"><div class="mini-bar-chart horizontal">' + actions.slice(0, 8).map(function(item) { return '<div class="mini-bar-item"><span>' + item.count + '</span><i style="width:' + Math.round((item.count / maxAction) * 100) + '%"></i><small>' + this._esc(item.action) + '</small></div>'; }.bind(this)).join('') + '</div></div></div></div>';
       var filteredActivity = activity.filter(withinDays);
       if (filteredActivity.length) {
         html += '<div class="admin-summary-activity"><h4>' + (zh ? '最近活动' : 'Recent Activity') + '</h4><div class="admin-scroll-list">' + filteredActivity.slice(0, 30).map(function(item) { return '<div class="admin-activity-row"><strong>' + this._esc(item.actor || '-') + '</strong><span>' + this._esc(item.action || '-') + '</span></div>'; }.bind(this)).join('') + '</div></div>';
