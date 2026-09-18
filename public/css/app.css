@@ -684,7 +684,7 @@ input[type="checkbox"], input[type="radio"] {
   border-bottom: 1px solid var(--gray-100);
 }
 .dashboard-report-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.dashboard-bulk-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 8px; }
+.dashboard-bulk-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--gray-200); }
 .dashboard-select-all { display: flex; align-items: center; gap: 6px; color: var(--gray-600); font-size: .76rem; cursor: pointer; }
 .dashboard-select-all input { width: 16px; height: 16px; accent-color: var(--red); }
 .btn-danger { background: var(--red); color: #fff; }

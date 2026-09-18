@@ -792,14 +792,17 @@ class SamsonApp {
     var zh = I18n.lang === 'zh';
     var modal = document.createElement('div');
     modal.className = 'modal';
-    modal.innerHTML = '<div class="modal-content role-picker-modal"><h3>' + (zh ? '修改密码' : 'Change Password') + '</h3>' +
+    modal.innerHTML = '<div class="modal-content role-picker-modal"><h3>' + (zh ? '重置密码' : 'Reset Password') + '</h3>' +
+      '<p class="role-note">' + (zh ? '原密码无法查看或恢复。请输入一个新密码，保存后将该密码告知用户。' : 'The existing password cannot be viewed or recovered. Set a new password, then provide it to the user.') + '</p>' +
       '<div class="wizard-block"><label>' + this._esc(username) + '</label><input id="changedPassword" type="password" autocomplete="new-password" /></div>' +
+      '<div class="wizard-block"><label>' + (zh ? '确认新密码' : 'Confirm New Password') + '</label><input id="confirmChangedPassword" type="password" autocomplete="new-password" /></div>' +
       '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="saveChangedPassword">' + (zh ? '保存' : 'Save') + '</button><button class="btn btn-ghost" id="cancelChangedPassword">' + (zh ? '取消' : 'Cancel') + '</button></div></div>';
     document.body.appendChild(modal);
     document.getElementById('cancelChangedPassword').onclick = function() { modal.remove(); };
     document.getElementById('saveChangedPassword').onclick = async function() {
       var password = document.getElementById('changedPassword').value;
       if (!password) { this._showToast(zh ? '请输入新密码' : 'Enter a new password', 'error'); return; }
+      if (password !== document.getElementById('confirmChangedPassword').value) { this._showToast(zh ? '两次输入的密码不一致' : 'Passwords do not match', 'error'); return; }
       try {
         var passwordHash = await this._hashLocalPassword(password);
         var response = await fetch('api/admin/users/' + encodeURIComponent(username), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passwordHash: passwordHash }) });
@@ -931,18 +934,18 @@ class SamsonApp {
     var zh = I18n.lang === 'zh';
     if (!reports.length) { results.innerHTML = '<p class="batch-empty">' + (zh ? '没有匹配的报告' : 'No matching reports') + '</p>'; return; }
     var html = '';
-    if (this.currentUser.role === 'admin') {
-      html += '<div class="dashboard-bulk-actions"><label class="dashboard-select-all"><input type="checkbox" id="selectAllReports" /> ' + (zh ? '全选' : 'Select all') + '</label><button class="btn btn-sm btn-danger" id="deleteSelectedReports" disabled>' + (zh ? '删除选中报告' : 'Delete Selected') + '</button></div>';
-    }
     html += '<div class="dashboard-report-list">';
     reports.forEach(function(report, index) {
       var date = String(report.createdAt || '').slice(0, 10);
-      html += '<div class="dashboard-report-row"><div class="dashboard-report-main">' + (this.currentUser.role === 'admin' ? '<label class="dashboard-check"><input type="checkbox" data-report-id="' + this._esc(report.id) + '" /></label>' : '') + '<strong>' + this._esc(report.contractNo || '-') + ' · Pos' + this._esc(report.positionNo || '-') + '</strong><small>' + this._esc(report.tagNo || '-') + ' · ' + this._esc(report.operator || '-') + ' · ' + date + '</small></div><div class="completed-report-actions">' +
+      html += '<div class="dashboard-report-row"><div class="dashboard-report-main"><strong>' + this._esc(report.contractNo || '-') + ' · Pos' + this._esc(report.positionNo || '-') + '</strong><small>' + this._esc(report.tagNo || '-') + ' · ' + this._esc(report.operator || '-') + ' · ' + date + '</small></div><div class="completed-report-actions">' +
         '<button class="btn btn-sm btn-outline" data-dashboard-view="' + index + '">' + (zh ? '查看' : 'View') + '</button>' +
         '<button class="btn btn-sm btn-outline" data-dashboard-pdf="' + index + '">PDF</button>' +
-        '<button class="btn btn-sm btn-outline" data-dashboard-zip="' + index + '">ZIP</button></div></div>';
+        '<button class="btn btn-sm btn-outline" data-dashboard-zip="' + index + '">ZIP</button>' + (this.currentUser.role === 'admin' ? '<label class="dashboard-check"><input type="checkbox" data-report-id="' + this._esc(report.id) + '" /></label>' : '') + '</div></div>';
     }.bind(this));
     html += '</div>';
+    if (this.currentUser.role === 'admin') {
+      html += '<div class="dashboard-bulk-actions"><label class="dashboard-select-all"><input type="checkbox" id="selectAllReports" /> ' + (zh ? '全选' : 'Select all') + '</label><button class="btn btn-sm btn-danger" id="deleteSelectedReports" disabled>' + (zh ? '删除选中报告' : 'Delete Selected') + '</button></div>';
+    }
     results.innerHTML = html;
     results.querySelectorAll('[data-dashboard-view]').forEach(function(button) { button.onclick = function() { this._viewDashboardReport(this._dashboardReports[Number(button.dataset.dashboardView)]); }.bind(this); }.bind(this));
     results.querySelectorAll('[data-dashboard-pdf]').forEach(function(button) { button.onclick = function() { this._downloadDashboardReport(this._dashboardReports[Number(button.dataset.dashboardPdf)], 'report'); }.bind(this); }.bind(this));
