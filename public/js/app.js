@@ -861,10 +861,11 @@ class SamsonApp {
   _renderHeader() {
     document.getElementById('appTitle').textContent = this.t('appTitle');
     var sessionCount = this.batch ? this.batch.valves.length : 0;
+    var sessionId = this.batch ? this.batch.id : '-';
     document.getElementById('appSubtitle').textContent = this.t('appSubtitle');
     document.getElementById('sessionProgressBadge').textContent = I18n.lang === 'zh'
-      ? '本轮拍照 ' + sessionCount + ' / 10(Max)'
-      : 'Session ' + sessionCount + ' / 10(Max)';
+      ? 'Session: ' + sessionId + ' · 本轮 ' + sessionCount + '/10(Max)'
+      : 'Session: ' + sessionId + ' · ' + sessionCount + '/10(Max)';
     document.getElementById('langToggle').textContent = I18n.t('langSwitch');
     document.getElementById('btnRoleSwitch').textContent = this.currentUser.displayName + ' · ' + this._roleLabel(this.currentUser.role);
     this._updateCompletedButton();
