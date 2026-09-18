@@ -86,6 +86,17 @@ function readReports() {
   return reports;
 }
 
+function dirSize(dir) {
+  if (!fs.existsSync(dir)) return 0;
+  var total = 0;
+  fs.readdirSync(dir, { withFileTypes: true }).forEach(function(entry) {
+    var full = path.join(dir, entry.name);
+    if (entry.isDirectory()) total += dirSize(full);
+    else total += fs.statSync(full).size;
+  });
+  return total;
+}
+
 // Middleware
 app.use(express.json({ limit: '100mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -280,6 +291,54 @@ app.get('/api/admin/dashboard/activity-summary', (req, res) => {
     } catch (e) {}
   });
   res.json(Object.keys(counts).map(function(action) { return { action: action, count: counts[action] }; }).sort(function(a, b) { return b.count - a.count; }));
+});
+
+app.get('/api/admin/dashboard/storage', (req, res) => {
+  var reportsSize = dirSize(REPORTS_DIR);
+  var last24 = Date.now() - 86400000;
+  var last24ArchiveBytes = 0;
+  if (fs.existsSync(REPORTS_DIR)) {
+    fs.readdirSync(REPORTS_DIR, { withFileTypes: true }).filter(function(entry) { return entry.isDirectory(); }).forEach(function(entry) {
+      try {
+        var stats = fs.statSync(path.join(REPORTS_DIR, entry.name));
+        if (stats.mtimeMs >= last24) last24ArchiveBytes += dirSize(path.join(REPORTS_DIR, entry.name));
+      } catch (e) {}
+    });
+  }
+  var diskTotal = 0, diskFree = 0, diskUsagePercent = 0;
+  try {
+    var stats = fs.statfsSync('/');
+    diskTotal = stats.blocks * stats.bsize;
+    diskFree = stats.bfree * stats.bsize;
+    diskUsagePercent = diskTotal ? Math.round(((diskTotal - diskFree) / diskTotal) * 100) : 0;
+  } catch (e) {}
+  res.json({ reportsSizeBytes: reportsSize, last24ArchiveBytes: last24ArchiveBytes, diskTotalBytes: diskTotal, diskFreeBytes: diskFree, diskUsagePercent: diskUsagePercent });
+});
+
+app.get('/api/admin/dashboard/retention', (req, res) => {
+  var reports = readReports().map(function(report) {
+    var created = new Date(report.createdAt).getTime();
+    var expires = created + 30 * 86400000;
+    return Object.assign({}, report, { expiresAt: new Date(expires).toISOString(), remainingDays: Math.max(0, Math.ceil((expires - Date.now()) / 86400000)) });
+  });
+  var expiring = reports.filter(function(report) { return report.remainingDays <= 7; }).sort(function(a, b) { return a.remainingDays - b.remainingDays; });
+  res.json({ reports: reports, expiring: expiring });
+});
+
+app.get('/api/admin/dashboard/recent-sessions', (req, res) => {
+  var reports = readReports();
+  var sessions = {};
+  reports.forEach(function(report) {
+    if (!report.sessionId) return;
+    if (!sessions[report.sessionId]) sessions[report.sessionId] = { sessionId: report.sessionId, operator: report.operator, createdAt: report.createdAt, reports: 0 };
+    sessions[report.sessionId].reports++;
+    if (String(report.createdAt) > String(sessions[report.sessionId].createdAt)) sessions[report.sessionId].createdAt = report.createdAt;
+  });
+  res.json(Object.keys(sessions).map(function(key) { return sessions[key]; }).sort(function(a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); }).slice(0, 10));
+});
+
+app.get('/api/admin/dashboard/recent-reports', (req, res) => {
+  res.json(readReports().slice(0, 10));
 });
 
 app.post('/api/sessions/package', async (req, res) => {
