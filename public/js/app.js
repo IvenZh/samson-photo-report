@@ -789,22 +789,81 @@ class SamsonApp {
   }
 
   async _showAuditLog() {
-    var modal = document.createElement('div');
-    modal.className = 'modal';
-    modal.id = 'auditLogModal';
-    modal.innerHTML = '<div class="modal-content completed-reports-modal"><h3>' + (I18n.lang === 'zh' ? '审计日志' : 'Audit Log') + '</h3><div id="auditLogList" class="dashboard-results"><p>Loading…</p></div><div class="appearance-prompt-actions"><button class="btn btn-outline" id="closeAuditLog">' + (I18n.lang === 'zh' ? '关闭' : 'Close') + '</button></div></div>';
-    document.body.appendChild(modal);
-    document.getElementById('closeAuditLog').onclick = function() { modal.remove(); };
-    try {
-      var response = await fetch('api/dashboard/audit?limit=100');
-      var logs = await response.json();
+    var existing = document.getElementById('auditLogPanel');
+    if (existing) existing.remove();
+    var zh = I18n.lang === 'zh';
+    this._auditLogs = [];
+    this._auditVisibleCount = 20;
+    var panel = document.createElement('div');
+    panel.className = 'audit-panel';
+    panel.id = 'auditLogPanel';
+    panel.innerHTML = '<div class="audit-panel-header"><strong>' + (zh ? '审计日志' : 'Audit Log') + '</strong><button class="btn btn-ghost" id="closeAuditPanel">✕</button></div>' +
+      '<div class="audit-panel-toolbar">' +
+      '<input id="auditKeyword" placeholder="' + (zh ? '搜索 IFS / Pos / Tag / 报告ID' : 'Search IFS / Pos / Tag / Report ID') + '" />' +
+      '<select id="auditAction">' + ['', 'dashboard_viewed', 'report_viewed', 'report_downloaded_pdf', 'report_downloaded_zip', 'report_generated', 'session_closed', 'session_reset'].map(function(action) { return '<option value="' + action + '">' + (action || (zh ? '全部动作' : 'All Actions')) + '</option>'; }).join('') + '</select>' +
+      '<button class="btn btn-sm btn-primary" id="refreshAuditLog">' + (zh ? '刷新' : 'Refresh') + '</button>' +
+      '<button class="btn btn-sm btn-outline" id="copyAuditJson">JSON</button>' +
+      '<button class="btn btn-sm btn-outline" id="exportAuditCsv">CSV</button>' +
+      '</div><div id="auditLogList" class="audit-panel-list"></div><div class="audit-panel-actions"><button class="btn btn-sm btn-outline" id="loadMoreAudit">' + (zh ? '加载更多' : 'Load More') + '</button></div>';
+    document.body.appendChild(panel);
+    document.body.style.overflow = 'hidden';
+
+    var close = function() { panel.remove(); document.body.style.overflow = ''; document.removeEventListener('keydown', onKey); };
+    var onKey = function(e) { if (e.key === 'Escape') close(); };
+    document.getElementById('closeAuditPanel').onclick = close;
+    document.addEventListener('keydown', onKey);
+
+    var self = this;
+    var filtered = function() {
+      var keyword = document.getElementById('auditKeyword').value.trim().toLowerCase();
+      var action = document.getElementById('auditAction').value;
+      return self._auditLogs.filter(function(item) {
+        if (action && item.action !== action) return false;
+        if (!keyword) return true;
+        return JSON.stringify(item).toLowerCase().indexOf(keyword) >= 0;
+      });
+    };
+    var render = function() {
       var list = document.getElementById('auditLogList');
-      list.innerHTML = logs.length ? logs.map(function(item) {
-        return '<div class="audit-log-row"><strong>' + this._esc(item.actor || '-') + '</strong><span>' + this._esc(item.action || '-') + '</span><small>' + this._esc(item.timestamp || '') + '</small></div>';
-      }.bind(this)).join('') : '<p class="batch-empty">No logs</p>';
-    } catch (e) {
-      document.getElementById('auditLogList').innerHTML = '<p style="color:red;">' + e.message + '</p>';
-    }
+      var items = filtered();
+      var visible = items.slice(0, self._auditVisibleCount);
+      list.innerHTML = visible.length ? visible.map(function(item, index) {
+        return '<div class="audit-log-row" data-audit-index="' + index + '"><div><strong>' + self._esc(item.actor || '-') + '</strong><span>' + self._esc(item.action || '-') + '</span></div><small>' + self._esc(item.timestamp || '') + '</small><pre class="audit-log-detail">' + self._esc(JSON.stringify(item, null, 2)) + '</pre></div>';
+      }).join('') : '<p class="batch-empty">' + (zh ? '没有匹配日志' : 'No matching logs') + '</p>';
+      document.getElementById('loadMoreAudit').style.display = items.length > self._auditVisibleCount ? '' : 'none';
+      list.querySelectorAll('[data-audit-index]').forEach(function(row) {
+        row.onclick = function() { row.classList.toggle('expanded'); };
+      });
+    };
+    var load = async function() {
+      document.getElementById('auditLogList').innerHTML = '<p class="dashboard-loading">Loading…</p>';
+      try {
+        var response = await fetch('api/dashboard/audit?limit=500');
+        self._auditLogs = await response.json();
+        self._auditVisibleCount = 20;
+        render();
+      } catch (e) {
+        document.getElementById('auditLogList').innerHTML = '<p style="color:red;">' + e.message + '</p>';
+      }
+    };
+    document.getElementById('auditKeyword').oninput = render;
+    document.getElementById('auditAction').onchange = render;
+    document.getElementById('refreshAuditLog').onclick = load;
+    document.getElementById('loadMoreAudit').onclick = function() { self._auditVisibleCount += 20; render(); };
+    document.getElementById('copyAuditJson').onclick = async function() {
+      var data = filtered();
+      try { await navigator.clipboard.writeText(JSON.stringify(data, null, 2)); self._showToast(zh ? '已复制' : 'Copied'); } catch (e) { self._showToast(zh ? '复制失败' : 'Copy failed', 'error'); }
+    };
+    document.getElementById('exportAuditCsv').onclick = function() {
+      var data = filtered();
+      var headers = ['timestamp', 'actor', 'role', 'action', 'reportId', 'contractNo', 'positionNo', 'tagNo'];
+      var rows = data.map(function(item) { return headers.map(function(h) { return '"' + String(item[h] || '').replace(/"/g, '""') + '"'; }).join(','); });
+      var csv = headers.join(',') + '\n' + rows.join('\n');
+      var blob = new Blob([csv], { type: 'text/csv' });
+      var url = URL.createObjectURL(blob);
+      var link = document.createElement('a'); link.href = url; link.download = 'audit-log.csv'; link.click(); URL.revokeObjectURL(url);
+    };
+    await load();
   }
 
   // ── Lang helpers ───────────────────────────
@@ -1032,8 +1091,12 @@ class SamsonApp {
     document.getElementById('langToggle').textContent = I18n.t('langSwitch');
     document.getElementById('btnRoleSwitch').textContent = this.currentUser.displayName + ' · ' + this._roleLabel(this.currentUser.role);
     this._updateCompletedButton();
+    var operatorSessionActive = this._authenticated && this.currentUser.role === 'operator' && !this._roleDashboard &&
+      this.batch && this.batch.status !== 'closed' && this.batch.valves.length > 0;
+    document.getElementById('btnCompletedReports').style.display = operatorSessionActive ? '' : 'none';
+    document.getElementById('sessionProgressBadge').style.display = operatorSessionActive ? '' : 'none';
     document.getElementById('sessionToolbar').style.display =
-      this.currentUser.role === 'operator' && !this._roleDashboard ? 'flex' : 'none';
+      this._authenticated && this.currentUser.role === 'operator' && !this._roleDashboard && this.batch && this.batch.status !== 'closed' ? 'flex' : 'none';
     document.getElementById('btnRefreshCurrent').textContent = I18n.lang === 'zh' ? '刷新' : 'Refresh';
     document.getElementById('btnResetSession').textContent = I18n.lang === 'zh' ? '重置' : 'Reset';
     document.getElementById('btnCloseSession').textContent = I18n.lang === 'zh' ? '关闭' : 'Close';
