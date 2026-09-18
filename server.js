@@ -261,12 +261,8 @@ app.use(express.json({ limit: '100mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── API: Authentication
-app.get('/api/auth/options', (req, res) => {
-  res.json(loadUsers().filter(function(user) { return user.enabled !== false; }).map(publicUser));
-});
-
 app.post('/api/auth/login', (req, res) => {
-  var username = String((req.body && req.body.username) || '').trim();
+  var username = String((req.body && req.body.username) || '').trim().toLowerCase();
   var suppliedHash = String((req.body && req.body.passwordHash) || '').trim().toLowerCase();
   var user = loadUsers().find(function(item) { return item.username === username; });
   var expectedHash = user && user.enabled !== false ? String(user.passwordHash || '') : '';
@@ -303,7 +299,7 @@ app.get('/api/admin/users', requireRole('admin'), (req, res) => {
 });
 
 app.post('/api/admin/users', requireRole('admin'), (req, res) => {
-  var username = String((req.body && req.body.username) || '').trim();
+  var username = String((req.body && req.body.username) || '').trim().toLowerCase();
   var displayName = String((req.body && req.body.displayName) || '').trim();
   var role = String((req.body && req.body.role) || '').trim();
   var passwordHash = String((req.body && req.body.passwordHash) || '').trim().toLowerCase();

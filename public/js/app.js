@@ -153,33 +153,37 @@ class SamsonApp {
     modal.id = 'rolePickerModal';
     var zh = I18n.lang === 'zh';
     var html = '<div class="modal-content role-picker-modal"><h3>' + (zh ? '登录' : 'Login') + '</h3>';
-    html += '<div class="wizard-block"><label>' + (zh ? '用户 / 角色' : 'User / Role') + '</label><select id="roleUserSelect">';
-    this.localUsers.forEach(function(user) {
-      html += '<option value="' + user.username + '"' + (user.username === this.currentUser.username ? ' selected' : '') + '>' + this._esc(user.displayName) + ' · ' + this._roleLabel(user.role) + '</option>';
-    }.bind(this));
-    html += '</select></div><div class="wizard-block"><label>' + (zh ? '密码' : 'Password') + '</label><input id="rolePassword" type="password" autocomplete="current-password" /></div><div id="roleLoginError" class="role-login-error"></div>';
+    html += '<div class="wizard-block"><label>' + (zh ? '用户名' : 'Username') + '</label><input id="roleUsername" type="text" autocomplete="username" value="" autofocus /></div>';
+    html += '<div class="wizard-block"><label>' + (zh ? '密码' : 'Password') + '</label><input id="rolePassword" type="password" autocomplete="current-password" value="" /></div><div id="roleLoginError" class="role-login-error"></div>';
     html += '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="roleLoginBtn">' + (zh ? '登录' : 'Login') + '</button>';
     if (this._authenticated) html += '<button class="btn btn-ghost" id="closeRolePicker">' + (zh ? '取消' : 'Cancel') + '</button>';
     html += '</div></div>';
     modal.innerHTML = html;
     document.body.appendChild(modal);
     document.getElementById('roleLoginBtn').onclick = async function() {
-      var username = document.getElementById('roleUserSelect').value;
+      var username = document.getElementById('roleUsername').value.trim();
       var password = document.getElementById('rolePassword').value;
+      if (!username || !password) {
+        document.getElementById('roleLoginError').textContent = zh ? '请输入用户名和密码' : 'Enter username and password';
+        return;
+      }
       try {
         var passwordHash = await this._hashLocalPassword(password);
         var response = await fetch('api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username, passwordHash: passwordHash }) });
         if (!response.ok) {
-          document.getElementById('roleLoginError').textContent = response.status === 403 ? (zh ? '该账号已被禁用' : 'This account is disabled') : (zh ? '密码错误' : 'Incorrect password');
+          document.getElementById('roleLoginError').textContent = response.status === 403 ? (zh ? '该账号已被禁用' : 'This account is disabled') : (zh ? '用户名或密码错误' : 'Incorrect username or password');
           return;
         }
         var selectedUser = await response.json();
         modal.remove();
-        this._switchRole(username, selectedUser);
+        this._switchRole(selectedUser.username, selectedUser);
       } catch (e) {
         document.getElementById('roleLoginError').textContent = zh ? '无法连接服务器' : 'Cannot reach server';
       }
     }.bind(this);
+    document.getElementById('rolePassword').onkeydown = function(event) {
+      if (event.key === 'Enter') document.getElementById('roleLoginBtn').click();
+    };
     if (document.getElementById('closeRolePicker')) document.getElementById('closeRolePicker').onclick = function() { modal.remove(); };
   }
 
@@ -239,7 +243,6 @@ class SamsonApp {
 
   async _initMultiValvePrototype() {
     try {
-      await this._loadServerUsers();
       this.batch = await SamsonBatchStore.get('session');
       if (!this.batch || this.batch.version !== 2) {
         this.batch = this._newSession();
@@ -269,15 +272,6 @@ class SamsonApp {
       this.currentStep = 1;
       this.render();
     }
-  }
-
-  async _loadServerUsers() {
-    try {
-      var response = await fetch('api/auth/options');
-      if (!response.ok) return;
-      var users = await response.json();
-      if (Array.isArray(users) && users.length) this.localUsers = users;
-    } catch (e) {}
   }
 
   async _loadAdminUsers() {
