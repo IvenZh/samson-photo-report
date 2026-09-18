@@ -13,6 +13,7 @@ class SamsonApp {
       this._archivePromises = {};
       this._authenticated = false;
       this.localUsers = this._loadRoleDemoUsers();
+      localStorage.removeItem('samson_role_demo_users');
       var savedUser = localStorage.getItem('samson_role_demo_current') || 'liuyang';
       this.currentUser = this.localUsers.find(function(user) { return user.username === savedUser; }) || this.localUsers[0];
       this._roleDashboard = this.currentUser.role !== 'operator';
@@ -62,40 +63,46 @@ class SamsonApp {
 
   _loadRoleDemoUsers() {
     var defaults = [
-      { username: 'liuyang', displayName: 'Liu Yang', role: 'operator', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' },
-      { username: 'liuzhixin', displayName: 'Liu Zhixin', role: 'operator', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' },
-      { username: 'yanbo', displayName: 'Yan Bo', role: 'operator', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' },
-      { username: 'zhanglin', displayName: 'Zhang Lin', role: 'operator', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' },
-      { username: 'zhonghaitao', displayName: 'Zhong Haitao', role: 'operator', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' },
-      { username: 'sunqiang', displayName: 'Sun Qiang', role: 'supervisor', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' },
-      { username: 'zhaofeng', displayName: 'Zhao Feng', role: 'admin', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' }
+      { username: 'liuyang', displayName: 'Liu Yang', role: 'operator', enabled: true },
+      { username: 'liuzhixin', displayName: 'Liu Zhixin', role: 'operator', enabled: true },
+      { username: 'yanbo', displayName: 'Yan Bo', role: 'operator', enabled: true },
+      { username: 'zhanglin', displayName: 'Zhang Lin', role: 'operator', enabled: true },
+      { username: 'zhonghaitao', displayName: 'Zhong Haitao', role: 'operator', enabled: true },
+      { username: 'sunqiang', displayName: 'Sun Qiang', role: 'supervisor', enabled: true },
+      { username: 'zhaofeng', displayName: 'Zhao Feng', role: 'admin', enabled: true }
     ];
-    try {
-      var saved = JSON.parse(localStorage.getItem('samson_role_demo_users') || 'null');
-      if (!Array.isArray(saved) || !saved.length) return defaults;
-      return defaults.map(function(user) {
-        var match = saved.find(function(item) { return item.username === user.username; });
-        return match ? Object.assign({}, user, { role: match.role || user.role, enabled: typeof match.enabled === 'boolean' ? match.enabled : true, passwordHash: match.passwordHash || user.passwordHash }) : user;
-      });
-    } catch (e) { return defaults; }
-  }
-
-  _saveRoleDemoUsers() {
-    localStorage.setItem('samson_role_demo_users', JSON.stringify(this.localUsers));
+    return defaults;
   }
 
   _roleLabel(role) {
     return ({ operator: 'Operator', supervisor: 'Supervisor', admin: 'Admin' })[role] || role;
   }
 
-  _switchRole(username) {
-    var user = this.localUsers.find(function(item) { return item.username === username; });
+  _switchRole(username, serverUser) {
+    var user = serverUser || this.localUsers.find(function(item) { return item.username === username; });
     if (!user) return;
+    if (!this.localUsers.some(function(item) { return item.username === user.username; })) this.localUsers.push(user);
     this.currentUser = user;
     this._authenticated = true;
     localStorage.setItem('samson_role_demo_current', username);
     this._roleDashboard = user.role !== 'operator';
-    if (!this._roleDashboard && this.batch && this.batch.ownerUserId === user.username) {
+    if (!this._roleDashboard) {
+      var ownerMatches = this.batch && (!this.batch.ownerUserId || this.batch.ownerUserId === user.username);
+      var needsNewSession = !this.batch || this.batch.status === 'closed' || (!ownerMatches && !this.batch.valves.length);
+      if (needsNewSession) {
+        this.batch = this._newSession();
+        this.activeValveId = '';
+        this.data = this._defaultData();
+        this.batch.createdLogged = true;
+        this._saveBatch();
+        this._auditServer('session_created', { owner: user.username }, this.batch.id, '');
+      } else if (ownerMatches && !this.batch.createdLogged) {
+        this.batch.createdLogged = true;
+        this._saveBatch();
+        this._auditServer('session_created', { owner: user.username }, this.batch.id, '');
+      }
+    }
+    if (!this._roleDashboard && this.batch && this.batch.ownerUserId === user.username && this.batch.status !== 'closed') {
       var active = this._getActiveValve();
       if (active) {
         this.activeValveId = active.id;
@@ -107,8 +114,12 @@ class SamsonApp {
     } else {
       this.currentStep = this._roleDashboard ? 0 : 1;
     }
-    this.render();
-    if (!this._roleDashboard && this.batch && this.batch.valves.length) this._showResumeSessionPrompt();
+    var finish = function() {
+      this.render();
+      if (!this._roleDashboard && this.batch && this.batch.valves.length) this._showResumeSessionPrompt();
+    }.bind(this);
+    if (user.role === 'admin') this._loadAdminUsers().finally(finish);
+    else finish();
   }
 
   _showResumeSessionPrompt() {
@@ -155,32 +166,21 @@ class SamsonApp {
     document.getElementById('roleLoginBtn').onclick = async function() {
       var username = document.getElementById('roleUserSelect').value;
       var password = document.getElementById('rolePassword').value;
-      var ok = await this._verifyLocalPassword(username, password);
-      if (!ok) {
-        document.getElementById('roleLoginError').textContent = zh ? '密码错误' : 'Incorrect password';
-        return;
+      try {
+        var passwordHash = await this._hashLocalPassword(password);
+        var response = await fetch('api/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username, passwordHash: passwordHash }) });
+        if (!response.ok) {
+          document.getElementById('roleLoginError').textContent = response.status === 403 ? (zh ? '该账号已被禁用' : 'This account is disabled') : (zh ? '密码错误' : 'Incorrect password');
+          return;
+        }
+        var selectedUser = await response.json();
+        modal.remove();
+        this._switchRole(username, selectedUser);
+      } catch (e) {
+        document.getElementById('roleLoginError').textContent = zh ? '无法连接服务器' : 'Cannot reach server';
       }
-      var selectedUser = this.localUsers.find(function(item) { return item.username === username; });
-      if (!selectedUser || selectedUser.enabled === false) {
-        document.getElementById('roleLoginError').textContent = zh ? '该账号已被禁用' : 'This account is disabled';
-        return;
-      }
-      modal.remove();
-      this._switchRole(username);
     }.bind(this);
     if (document.getElementById('closeRolePicker')) document.getElementById('closeRolePicker').onclick = function() { modal.remove(); };
-  }
-
-  async _verifyLocalPassword(username, password) {
-    try {
-      var bytes = new TextEncoder().encode(String(password));
-      var hash = await crypto.subtle.digest('SHA-256', bytes);
-      var hex = Array.from(new Uint8Array(hash)).map(function(value) { return value.toString(16).padStart(2, '0'); }).join('');
-      var user = this.localUsers.find(function(item) { return item.username === username; });
-      return hex === (user ? (user.passwordHash || 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501') : 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501');
-    } catch (e) {
-      return false;
-    }
   }
 
   async _hashLocalPassword(password) {
@@ -198,6 +198,7 @@ class SamsonApp {
       ownerUserId: this.currentUser.username,
       ownerDisplayName: this.currentUser.displayName,
       startedAt: new Date().toISOString(),
+      createdLogged: false,
       activeValveId: '',
       valves: [],
       logs: [{ timestamp: new Date().toISOString(), user: this.currentUser.username, action: 'session_created', sessionId: sessionId }]
@@ -226,10 +227,19 @@ class SamsonApp {
       details: details || {}
     });
     this._saveBatch();
+    this._auditServer(action, details, this.batch.id, this.activeValveId || '');
+  }
+
+  _auditServer(action, details, sessionId, valveId) {
+    fetch('api/dashboard/audit', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: action, sessionId: sessionId || '', valveId: valveId || '', details: details || {} })
+    }).catch(function() {});
   }
 
   async _initMultiValvePrototype() {
     try {
+      await this._loadServerUsers();
       this.batch = await SamsonBatchStore.get('session');
       if (!this.batch || this.batch.version !== 2) {
         this.batch = this._newSession();
@@ -259,6 +269,24 @@ class SamsonApp {
       this.currentStep = 1;
       this.render();
     }
+  }
+
+  async _loadServerUsers() {
+    try {
+      var response = await fetch('api/auth/options');
+      if (!response.ok) return;
+      var users = await response.json();
+      if (Array.isArray(users) && users.length) this.localUsers = users;
+    } catch (e) {}
+  }
+
+  async _loadAdminUsers() {
+    try {
+      var response = await fetch('api/admin/users');
+      if (!response.ok) return;
+      var users = await response.json();
+      if (Array.isArray(users)) this.localUsers = users;
+    } catch (e) {}
   }
 
   _saveBatch() {
@@ -635,7 +663,7 @@ class SamsonApp {
     c.querySelectorAll('[data-zip]').forEach(function(button) { button.onclick = function() { var valve = this.batch.valves.find(function(v) { return v.id === button.dataset.zip; }.bind(this)); if (valve) this._packageValve(valve); }.bind(this); }.bind(this));
     document.getElementById('batchAddValve').onclick = function() { this._showValveWizard(); }.bind(this);
     document.getElementById('batchContinue').onclick = function() { this._continueNextValve(); }.bind(this);
-    document.getElementById('batchReset').onclick = function() { if (confirm(I18n.lang === 'zh' ? '结束本轮任务并开始新任务？' : 'End this session and start a new one?')) { this.batch = this._newSession(); this.activeValveId = ''; this._saveBatch(); this.render(); } }.bind(this);
+    document.getElementById('batchReset').onclick = function() { if (confirm(I18n.lang === 'zh' ? '结束本轮任务并开始新任务？' : 'End this session and start a new one?')) { this.batch = this._newSession(); this.batch.createdLogged = true; this.activeValveId = ''; this._saveBatch(); this._auditServer('session_created', { owner: this.currentUser.username }, this.batch.id, ''); this.render(); } }.bind(this);
   }
 
   _renderRoleDashboard(c) {
@@ -645,11 +673,14 @@ class SamsonApp {
     var html = '<div class="batch-page">';
     html += '<div class="batch-summary"><div><strong>' + this._esc(user.displayName) + '</strong><small>' + this._roleLabel(user.role) + ' · ' + (zh ? '后台管理' : 'Backend') + '</small></div></div>';
     if (user.role === 'admin') {
-      html += '<div class="admin-tabs"><button class="admin-tab active" data-admin-tab="status">Status</button><button class="admin-tab" data-admin-tab="reports">Reports</button><button class="admin-tab" data-admin-tab="users">Users</button><button class="admin-tab" data-admin-tab="audit">Audit</button></div>';
-      html += '<div id="adminSectionStatus" class="admin-section active"><div id="adminSummary" class="admin-summary"></div></div>';
-      html += '<div id="adminSectionReports" class="admin-section">' + this._dashboardFilterHtml(operatorOptions) + '<div id="dashboardResults" class="dashboard-results"></div></div>';
-      html += '<div id="adminSectionUsers" class="admin-section">' + this._adminUsersHtml() + '</div>';
-      html += '<div id="adminSectionAudit" class="admin-section"><div class="role-panel"><h3>' + (zh ? '审计日志' : 'Audit Log') + '</h3><p class="role-note">' + (zh ? '点击下方按钮打开审计日志详情。' : 'Click below to open the audit log.') + '</p><button class="btn btn-primary" id="openAuditPanel">' + (zh ? '打开审计日志' : 'Open Audit Log') + '</button></div></div>';
+      var activeTab = ['status', 'reports', 'users', 'audit'].indexOf(this._adminActiveTab) >= 0 ? this._adminActiveTab : 'status';
+      var tabClass = function(name) { return 'admin-tab' + (name === activeTab ? ' active' : ''); };
+      var sectionClass = function(name) { return 'admin-section' + (name === activeTab ? ' active' : ''); };
+      html += '<div class="admin-tabs"><button class="' + tabClass('status') + '" data-admin-tab="status">' + (zh ? '状态' : 'Status') + '</button><button class="' + tabClass('reports') + '" data-admin-tab="reports">' + (zh ? '报告' : 'Reports') + '</button><button class="' + tabClass('users') + '" data-admin-tab="users">' + (zh ? '用户' : 'Users') + '</button><button class="' + tabClass('audit') + '" data-admin-tab="audit">' + (zh ? '审计' : 'Audit') + '</button></div>';
+      html += '<div id="adminSectionStatus" class="' + sectionClass('status') + '"><div id="adminSummary" class="admin-summary"></div></div>';
+      html += '<div id="adminSectionReports" class="' + sectionClass('reports') + '">' + this._dashboardFilterHtml(operatorOptions) + '<div id="dashboardResults" class="dashboard-results"></div></div>';
+      html += '<div id="adminSectionUsers" class="' + sectionClass('users') + '">' + this._adminUsersHtml() + '</div>';
+      html += '<div id="adminSectionAudit" class="' + sectionClass('audit') + '"><div class="role-panel"><h3>' + (zh ? '审计日志' : 'Audit Log') + '</h3><p class="role-note">' + (zh ? '点击下方按钮打开审计日志详情。' : 'Click below to open the audit log.') + '</p><button class="btn btn-primary" id="openAuditPanel">' + (zh ? '打开审计日志' : 'Open Audit Log') + '</button></div></div>';
     } else {
       html += this._dashboardFilterHtml(operatorOptions);
       html += '<div id="dashboardResults" class="dashboard-results"></div>';
@@ -666,14 +697,26 @@ class SamsonApp {
       c.querySelectorAll('[data-user-role]').forEach(function(select) {
         select.onchange = function() {
           var target = this.localUsers.find(function(item) { return item.username === select.dataset.userRole; });
-          if (target) { target.role = select.value; this._saveRoleDemoUsers(); this._renderRoleDashboard(document.getElementById('mainContent')); }
+          if (!target) return;
+          fetch('api/admin/users/' + encodeURIComponent(target.username), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role: select.value }) }).then(function(response) {
+            if (!response.ok) throw new Error();
+            target.role = select.value;
+            this._renderRoleDashboard(document.getElementById('mainContent'));
+          }.bind(this)).catch(function() { select.value = target.role; this._showToast(I18n.lang === 'zh' ? '角色更新失败' : 'Role update failed', 'error'); }.bind(this));
         }.bind(this);
       }.bind(this));
       c.querySelectorAll('[data-user-enabled]').forEach(function(checkbox) {
         checkbox.onchange = function() {
           var target = this.localUsers.find(function(item) { return item.username === checkbox.dataset.userEnabled; });
-          if (target) { target.enabled = checkbox.checked; this._saveRoleDemoUsers(); }
+          if (!target) return;
+          fetch('api/admin/users/' + encodeURIComponent(target.username), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: checkbox.checked }) }).then(function(response) {
+            if (!response.ok) throw new Error();
+            target.enabled = checkbox.checked;
+          }).catch(function() { checkbox.checked = !checkbox.checked; this._showToast(I18n.lang === 'zh' ? '账户状态更新失败' : 'Account update failed', 'error'); }.bind(this));
         }.bind(this);
+      }.bind(this));
+      c.querySelectorAll('[data-user-password]').forEach(function(button) {
+        button.onclick = function() { this._showChangePasswordModal(button.dataset.userPassword); }.bind(this);
       }.bind(this));
       c.querySelectorAll('[data-delete-user]').forEach(function(button) {
         button.onclick = function() { this._deleteUser(button.dataset.deleteUser); }.bind(this);
@@ -690,21 +733,21 @@ class SamsonApp {
     var zh = I18n.lang === 'zh';
     return '<div class="role-panel"><h3>' + (zh ? '全部照片报告' : 'All Photo Reports') + '</h3><div class="dashboard-filters">' +
       '<label>' + (zh ? '日期' : 'Date') + '<input type="date" id="dashDate" /></label>' +
-      '<label>Operator<input id="dashOperator" list="dashboardOperatorList" /></label><datalist id="dashboardOperatorList">' + operatorOptions + '</datalist>' +
+      '<label>' + (zh ? '操作员' : 'Operator') + '<input id="dashOperator" list="dashboardOperatorList" /></label><datalist id="dashboardOperatorList">' + operatorOptions + '</datalist>' +
       '<label>IFS Order No.<input id="dashIfs" /></label>' +
       '<label>Pos No.<input id="dashPos" /></label>' +
       '<button class="btn btn-sm btn-primary" id="dashQuery">' + (zh ? '查询' : 'Search') + '</button>' +
       '<button class="btn btn-sm btn-ghost" id="dashReset">' + (zh ? '重置' : 'Reset') + '</button>' +
-      '</div>';
+      '</div></div>';
   }
 
   _adminUsersHtml() {
     var zh = I18n.lang === 'zh';
     var html = '<div class="role-panel"><div class="user-toolbar"><h3>' + (zh ? '用户与角色管理' : 'Users & Roles') + '</h3><button class="btn btn-sm btn-primary" id="addUserBtn">+ ' + (zh ? '增加账户' : 'Add User') + '</button></div>';
     this.localUsers.forEach(function(item) {
-      html += '<div class="user-role-row"><div><strong>' + this._esc(item.displayName) + '</strong><small>' + item.username + '</small></div><div class="user-role-controls"><label><input type="checkbox" data-user-enabled="' + item.username + '"' + (item.enabled !== false ? ' checked' : '') + ' /> ' + (zh ? '启用' : 'Enabled') + '</label><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select><button class="btn btn-sm btn-ghost" data-delete-user="' + item.username + '">✕</button></div></div>';
+      html += '<div class="user-role-row"><div><strong>' + this._esc(item.displayName) + '</strong><small>' + item.username + '</small></div><div class="user-role-controls"><label><input type="checkbox" data-user-enabled="' + item.username + '"' + (item.enabled !== false ? ' checked' : '') + ' /> ' + (zh ? '启用' : 'Enabled') + '</label><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select><button class="btn btn-sm btn-outline" data-user-password="' + item.username + '">' + (zh ? '改密' : 'Password') + '</button><button class="btn btn-sm btn-ghost" data-delete-user="' + item.username + '">✕</button></div></div>';
     }.bind(this));
-    html += '<div class="role-panel"><h3>30 ' + (zh ? '天数据保留策略' : 'Day Retention Policy') + '</h3><p class="role-note">' + (zh ? '报告、照片、PDF 和 ZIP 从生成之日起保留 30 个自然日，到期后服务器自动彻底删除，不提供恢复。' : 'Reports, photos, PDF and ZIP are kept for 30 calendar days, then permanently deleted by the server.') + '</p></div></div>';
+    html += '<div class="retention-policy"><h3>30 ' + (zh ? '天数据保留策略' : 'Day Retention Policy') + '</h3><p class="role-note">' + (zh ? '报告、照片、PDF 和 ZIP 从生成之日起保留 30 个自然日，到期后服务器自动彻底删除，不提供恢复。' : 'Reports, photos, PDF and ZIP are kept for 30 calendar days, then permanently deleted by the server.') + '</p></div></div>';
     return html;
   }
 
@@ -713,10 +756,10 @@ class SamsonApp {
     var modal = document.createElement('div');
     modal.className = 'modal';
     modal.innerHTML = '<div class="modal-content role-picker-modal"><h3>' + (zh ? '增加账户' : 'Add User') + '</h3>' +
-      '<div class="wizard-block"><label>Username</label><input id="newUsername" /></div>' +
+      '<div class="wizard-block"><label>' + (zh ? '用户名' : 'Username') + '</label><input id="newUsername" /></div>' +
       '<div class="wizard-block"><label>' + (zh ? '显示名' : 'Display Name') + '</label><input id="newDisplayName" /></div>' +
       '<div class="wizard-block"><label>' + (zh ? '密码' : 'Password') + '</label><input id="newPassword" type="password" /></div>' +
-      '<div class="wizard-block"><label>Role</label><select id="newRole"><option value="operator">Operator</option><option value="supervisor">Supervisor</option><option value="admin">Admin</option></select></div>' +
+      '<div class="wizard-block"><label>' + (zh ? '角色' : 'Role') + '</label><select id="newRole"><option value="operator">Operator</option><option value="supervisor">Supervisor</option><option value="admin">Admin</option></select></div>' +
       '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="saveNewUser">' + (zh ? '保存' : 'Save') + '</button><button class="btn btn-ghost" id="cancelNewUser">' + (zh ? '取消' : 'Cancel') + '</button></div></div>';
     document.body.appendChild(modal);
     document.getElementById('cancelNewUser').onclick = function() { modal.remove(); };
@@ -725,26 +768,59 @@ class SamsonApp {
       var displayName = document.getElementById('newDisplayName').value.trim();
       var password = document.getElementById('newPassword').value;
       var role = document.getElementById('newRole').value;
-      if (!username || !displayName || !password) { this._showToast('Fields required', 'error'); return; }
-      if (this.localUsers.some(function(item) { return item.username === username; })) { this._showToast('Username exists', 'error'); return; }
+      if (!username || !displayName || !password) { this._showToast(zh ? '请填写全部字段' : 'All fields are required', 'error'); return; }
+      if (this.localUsers.some(function(item) { return item.username === username; })) { this._showToast(zh ? '用户名已存在' : 'Username already exists', 'error'); return; }
       var passwordHash = await this._hashLocalPassword(password);
-      this.localUsers.push({ username: username, displayName: displayName, role: role, enabled: true, passwordHash: passwordHash });
-      this._saveRoleDemoUsers();
-      modal.remove();
-      this._renderRoleDashboard(document.getElementById('mainContent'));
+      try {
+        var response = await fetch('api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username, displayName: displayName, role: role, passwordHash: passwordHash }) });
+        if (!response.ok) throw new Error();
+        var created = await response.json();
+        this.localUsers.push(created);
+        modal.remove();
+        this._renderRoleDashboard(document.getElementById('mainContent'));
+      } catch (e) {
+        this._showToast(zh ? '账户创建失败' : 'Unable to create account', 'error');
+      }
+    }.bind(this);
+  }
+
+  _showChangePasswordModal(username) {
+    var zh = I18n.lang === 'zh';
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = '<div class="modal-content role-picker-modal"><h3>' + (zh ? '修改密码' : 'Change Password') + '</h3>' +
+      '<div class="wizard-block"><label>' + this._esc(username) + '</label><input id="changedPassword" type="password" autocomplete="new-password" /></div>' +
+      '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="saveChangedPassword">' + (zh ? '保存' : 'Save') + '</button><button class="btn btn-ghost" id="cancelChangedPassword">' + (zh ? '取消' : 'Cancel') + '</button></div></div>';
+    document.body.appendChild(modal);
+    document.getElementById('cancelChangedPassword').onclick = function() { modal.remove(); };
+    document.getElementById('saveChangedPassword').onclick = async function() {
+      var password = document.getElementById('changedPassword').value;
+      if (!password) { this._showToast(zh ? '请输入新密码' : 'Enter a new password', 'error'); return; }
+      try {
+        var passwordHash = await this._hashLocalPassword(password);
+        var response = await fetch('api/admin/users/' + encodeURIComponent(username), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passwordHash: passwordHash }) });
+        if (!response.ok) throw new Error();
+        modal.remove();
+        this._showToast(zh ? '密码已更新' : 'Password updated');
+      } catch (e) {
+        this._showToast(zh ? '密码更新失败' : 'Password update failed', 'error');
+      }
     }.bind(this);
   }
 
   _deleteUser(username) {
     if (username === this.currentUser.username) { this._showToast(I18n.lang === 'zh' ? '不能删除当前账户' : 'Cannot delete current account', 'error'); return; }
     this._confirmDanger(I18n.lang === 'zh' ? '删除账户' : 'Delete User', I18n.lang === 'zh' ? '确认删除账户 ' + username + '？' : 'Delete user ' + username + '?', function() {
-      this.localUsers = this.localUsers.filter(function(item) { return item.username !== username; });
-      this._saveRoleDemoUsers();
-      this._renderRoleDashboard(document.getElementById('mainContent'));
+      fetch('api/admin/users/' + encodeURIComponent(username), { method: 'DELETE' }).then(function(response) {
+        if (!response.ok) throw new Error();
+        this.localUsers = this.localUsers.filter(function(item) { return item.username !== username; });
+        this._renderRoleDashboard(document.getElementById('mainContent'));
+      }.bind(this)).catch(function() { this._showToast(I18n.lang === 'zh' ? '删除账户失败' : 'Delete user failed', 'error'); }.bind(this));
     }.bind(this));
   }
 
   _showAdminTab(section) {
+    this._adminActiveTab = section;
     document.querySelectorAll('[data-admin-tab]').forEach(function(button) { button.classList.toggle('active', button.dataset.adminTab === section); });
     document.querySelectorAll('.admin-section').forEach(function(item) { item.classList.toggle('active', item.id === 'adminSection' + section.charAt(0).toUpperCase() + section.slice(1)); });
     if (section === 'reports') this._queryDashboardReports();
@@ -802,7 +878,12 @@ class SamsonApp {
       var maxTrend = Math.max.apply(null, trends.map(function(item) { return item.reports; }).concat([1]));
       var maxWorkload = Math.max.apply(null, workload.map(function(item) { return item.reports; }).concat([1]));
       var maxAction = Math.max.apply(null, actions.map(function(item) { return item.count; }).concat([1]));
-      var html = '<div class="admin-overview-toolbar"><select id="adminOverviewRange"><option value="7"' + (days === '7' ? ' selected' : '') + '>7 days</option><option value="30"' + (days === '30' ? ' selected' : '') + '>1 month</option><option value="all"' + (days === 'all' ? ' selected' : '') + '>all</option></select></div>';
+      var html = '<div class="admin-overview-toolbar"><select id="adminOverviewRange"><option value="7"' + (days === '7' ? ' selected' : '') + '>' + (zh ? '7天' : '7 days') + '</option><option value="30"' + (days === '30' ? ' selected' : '') + '>' + (zh ? '1个月' : '1 month') + '</option><option value="all"' + (days === 'all' ? ' selected' : '') + '>' + (zh ? '全部' : 'all') + '</option></select></div>';
+      html += '<div class="admin-alert-grid">';
+      if (storage.diskUsagePercent >= 75) html += '<div class="admin-alert danger"><strong>' + storage.diskUsagePercent + '%</strong><span>' + (zh ? '服务器磁盘使用率较高' : 'Server disk usage is high') + '</span></div>';
+      html += '<div class="admin-alert info"><strong>' + this._formatBytes(storage.last24ArchiveBytes) + '</strong><span>' + (zh ? '最近 24 小时归档大小' : 'Archived in last 24h') + '</span></div>';
+      if (retention.expiring.length) html += '<div class="admin-alert warning"><strong>' + retention.expiring.length + '</strong><span>' + (zh ? '份报告将在 7 天内自动删除' : 'reports will be deleted within 7 days') + '</span></div>';
+      html += '</div>';
       html += '<div class="admin-summary-cards">' +
         '<div class="admin-card"><strong>' + summary.totalReports + '</strong><span>' + (zh ? '总报告' : 'Total Reports') + '</span></div>' +
         '<div class="admin-card"><strong>' + summary.todayReports + '</strong><span>' + (zh ? '今日报告' : 'Today') + '</span></div>' +
@@ -810,10 +891,6 @@ class SamsonApp {
         '<div class="admin-card"><strong>' + summary.totalOperators + '</strong><span>' + (zh ? 'Operator 数' : 'Operators') + '</span></div>' +
         '<div class="admin-card"><strong>' + storage.diskUsagePercent + '%</strong><span>' + (zh ? '磁盘：已用 ' + this._formatBytes(storage.diskUsedBytes) + ' / 可用 ' + this._formatBytes(storage.diskFreeBytes) : 'Disk: ' + this._formatBytes(storage.diskUsedBytes) + ' used / ' + this._formatBytes(storage.diskFreeBytes) + ' free') + '</span></div>' +
         '<div class="admin-card"><strong>' + retention.expiring.length + '</strong><span>' + (zh ? '7天内到期' : 'Expiring Soon') + '</span></div></div>';
-      html += '<div class="admin-alert-grid">';
-      if (storage.diskUsagePercent >= 75) html += '<div class="admin-alert danger"><strong>' + storage.diskUsagePercent + '%</strong><span>' + (zh ? '服务器磁盘使用率较高' : 'Server disk usage is high') + '</span></div>';
-      html += '<div class="admin-alert info"><strong>' + this._formatBytes(storage.last24ArchiveBytes) + '</strong><span>' + (zh ? '最近 24 小时归档大小' : 'Archived in last 24h') + '</span></div>';
-      if (retention.expiring.length) html += '<div class="admin-alert warning"><strong>' + retention.expiring.length + '</strong><span>' + (zh ? '份报告将在 7 天内自动删除' : 'reports will be deleted within 7 days') + '</span></div></div>';
       html += '<div class="admin-chart-grid"><div class="admin-chart"><h4>' + (zh ? '报告趋势' : 'Report Trend') + '</h4><div class="admin-scroll-h"><div class="mini-bar-chart">' + trends.map(function(item) { return '<div class="mini-bar-item"><span>' + item.reports + '</span><i style="height:' + Math.round((item.reports / maxTrend) * 100) + '%"></i><small>' + item.date.slice(5) + '</small></div>'; }).join('') + '</div></div></div>';
       html += '<div class="admin-chart"><h4>' + (zh ? 'Operator 工作量' : 'Operator Workload') + '</h4><div class="admin-scroll-list"><div class="admin-hbar-list">' + workload.slice(0, 8).map(function(item) { return '<div class="admin-hbar-row"><strong>' + this._esc(item.operator) + '</strong><div class="admin-hbar-track"><i style="width:' + Math.round((item.reports / maxWorkload) * 100) + '%"></i></div><span>' + item.reports + '</span></div>'; }.bind(this)).join('') + '</div></div></div></div>';
       html += '<div class="admin-chart-grid"><div class="admin-chart"><h4>' + (zh ? '动作分布' : 'Action Distribution') + '</h4><div class="admin-scroll-list"><div class="mini-bar-chart horizontal">' + actions.slice(0, 8).map(function(item) { return '<div class="mini-bar-item"><span>' + item.count + '</span><i style="width:' + Math.round((item.count / maxAction) * 100) + '%"></i><small>' + this._esc(item.action) + '</small></div>'; }.bind(this)).join('') + '</div></div></div></div>';
@@ -1138,11 +1215,13 @@ class SamsonApp {
     this._log('session_reset');
     this._archiveAuditLog();
     this.batch = this._newSession();
+    this.batch.createdLogged = true;
     this.activeValveId = '';
     this.data = this._defaultData();
     this._appearancePromptHandled = false;
     this.currentStep = 1;
     this._saveBatch();
+    this._auditServer('session_created', { owner: this.currentUser.username }, this.batch.id, '');
     this.render();
   }
 
@@ -1176,6 +1255,7 @@ class SamsonApp {
     document.body.appendChild(modal);
     document.getElementById('closeSessionDialog').onclick = function() {
       modal.remove();
+      fetch('api/auth/logout', { method: 'POST' }).catch(function() {});
       this._authenticated = false;
       this.activeValveId = '';
       this.batch.activeValveId = '';

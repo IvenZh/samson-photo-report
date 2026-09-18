@@ -7,6 +7,7 @@ window.SamsonStorage = {
     try {
       localStorage.setItem('samson_draft', JSON.stringify(data));
       // Also save to server if available
+      if (!window.app || !window.app._authenticated) return;
       fetch(`${this.API_BASE}/api/draft`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data)
