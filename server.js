@@ -262,7 +262,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── API: Authentication
 app.post('/api/auth/login', (req, res) => {
-  var username = String((req.body && req.body.username) || '').trim().toLowerCase();
+  var username = String((req.body && req.body.username) || '').trim().normalize('NFKC').toLowerCase();
   var suppliedHash = String((req.body && req.body.passwordHash) || '').trim().toLowerCase();
   var user = loadUsers().find(function(item) { return item.username === username; });
   var expectedHash = user && user.enabled !== false ? String(user.passwordHash || '') : '';
@@ -299,11 +299,11 @@ app.get('/api/admin/users', requireRole('admin'), (req, res) => {
 });
 
 app.post('/api/admin/users', requireRole('admin'), (req, res) => {
-  var username = String((req.body && req.body.username) || '').trim().toLowerCase();
+  var username = String((req.body && req.body.username) || '').trim().normalize('NFKC').toLowerCase();
   var displayName = String((req.body && req.body.displayName) || '').trim() || username;
   var role = String((req.body && req.body.role) || '').trim();
   var passwordHash = String((req.body && req.body.passwordHash) || '').trim().toLowerCase();
-  if (!/^[A-Za-z][A-Za-z0-9._-]{1,31}$/.test(username)) return res.status(400).json({ error: 'Invalid username' });
+  if (!/^[\p{L}\p{N}._-]{2,32}$/u.test(username)) return res.status(400).json({ error: 'Invalid username' });
   if (['operator', 'supervisor', 'admin'].indexOf(role) < 0) return res.status(400).json({ error: 'Invalid role' });
   if (!/^[a-f0-9]{64}$/.test(passwordHash)) return res.status(400).json({ error: 'Invalid password' });
   var users = loadUsers();

@@ -740,10 +740,10 @@ class SamsonApp {
   _adminUsersHtml() {
     var zh = I18n.lang === 'zh';
     var html = '<div class="role-panel"><div class="user-toolbar"><div><h3>' + (zh ? '用户与角色管理' : 'Users & Roles') + '</h3><p class="user-toolbar-note">' + (zh ? '管理登录账号、角色和启用状态' : 'Manage login accounts, roles and access') + '</p></div><button class="btn btn-sm btn-primary" id="addUserBtn">+ ' + (zh ? '增加账户' : 'Add User') + '</button></div>';
-    html += '<div class="user-table"><div class="user-table-head"><span>' + (zh ? '用户名' : 'User') + '</span><span>' + (zh ? '角色' : 'Role') + '</span><span>' + (zh ? '状态' : 'Status') + '</span><span>' + (zh ? '密码' : 'Password') + '</span><span></span></div>';
+    html += '<div class="user-table"><div class="user-table-head"><span>' + (zh ? '用户名' : 'User') + '</span><span>' + (zh ? '角色' : 'Role') + '</span><span>' + (zh ? '状态' : 'Status') + '</span><span>' + (zh ? '密码管理' : 'Password Reset') + '</span><span></span></div>';
     this.localUsers.forEach(function(item) {
       var enabled = item.enabled !== false;
-      html += '<div class="user-role-row"><strong class="user-name">' + this._esc(item.username) + '</strong><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select><button class="btn btn-sm user-status-toggle ' + (enabled ? 'is-enabled' : 'is-disabled') + '" data-user-toggle="' + item.username + '">' + (enabled ? 'Disable' : 'Enable') + '</button><button class="btn btn-sm btn-outline" data-user-password="' + item.username + '">' + (zh ? '改密' : 'Password') + '</button><button class="btn btn-sm btn-ghost user-delete-btn" data-delete-user="' + item.username + '">' + (zh ? '删除' : 'Delete') + '</button></div>';
+      html += '<div class="user-role-row"><strong class="user-name">' + this._esc(item.username) + '</strong><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select><button class="btn btn-sm user-status-toggle ' + (enabled ? 'is-enabled' : 'is-disabled') + '" data-user-toggle="' + item.username + '">' + (enabled ? 'Disable' : 'Enable') + '</button><button class="btn btn-sm btn-outline" data-user-password="' + item.username + '">' + (zh ? '重置' : 'Reset') + '</button><button class="btn btn-sm btn-ghost user-delete-btn" data-delete-user="' + item.username + '">' + (zh ? '删除' : 'Delete') + '</button></div>';
     }.bind(this));
     html += '</div>';
     html += '<div class="retention-policy"><h3>30 ' + (zh ? '天数据保留策略' : 'Day Retention Policy') + '</h3><p class="role-note">' + (zh ? '报告、照片、PDF 和 ZIP 从生成之日起保留 30 个自然日，到期后服务器自动彻底删除，不提供恢复。' : 'Reports, photos, PDF and ZIP are kept for 30 calendar days, then permanently deleted by the server.') + '</p></div></div>';
@@ -755,23 +755,29 @@ class SamsonApp {
     var modal = document.createElement('div');
     modal.className = 'modal';
     modal.innerHTML = '<div class="modal-content role-picker-modal"><h3>' + (zh ? '增加账户' : 'Add User') + '</h3>' +
-      '<div class="wizard-block"><label>' + (zh ? '用户名' : 'Username') + '</label><input id="newUsername" /></div>' +
-      '<div class="wizard-block"><label>' + (zh ? '密码' : 'Password') + '</label><input id="newPassword" type="password" /></div>' +
+      '<div class="wizard-block"><label>' + (zh ? '用户名' : 'Username') + '</label><input id="newUsername" autocomplete="off" spellcheck="false" placeholder="' + (zh ? '例如：liuyang 或 刘洋' : 'e.g. liuyang') + '" /></div>' +
+      '<div class="wizard-block"><label>' + (zh ? '密码' : 'Password') + '</label><input id="newPassword" type="password" autocomplete="new-password" /></div>' +
       '<div class="wizard-block"><label>' + (zh ? '角色' : 'Role') + '</label><select id="newRole"><option value="operator">Operator</option><option value="supervisor">Supervisor</option><option value="admin">Admin</option></select></div>' +
       '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="saveNewUser">' + (zh ? '保存' : 'Save') + '</button><button class="btn btn-ghost" id="cancelNewUser">' + (zh ? '取消' : 'Cancel') + '</button></div></div>';
     document.body.appendChild(modal);
     document.getElementById('cancelNewUser').onclick = function() { modal.remove(); };
     document.getElementById('saveNewUser').onclick = async function() {
-      var username = document.getElementById('newUsername').value.trim();
+      var username = document.getElementById('newUsername').value.trim().normalize('NFKC').toLowerCase();
       var displayName = username;
       var password = document.getElementById('newPassword').value;
       var role = document.getElementById('newRole').value;
       if (!username || !password) { this._showToast(zh ? '请填写用户名、密码和角色' : 'Username, password and role are required', 'error'); return; }
+      if (!/^[\p{L}\p{N}._-]{2,32}$/u.test(username)) { this._showToast(zh ? '用户名需为 2-32 个中文、字母、数字、点、下划线或连字符' : 'Username must be 2-32 letters, numbers, dots, underscores or hyphens', 'error'); return; }
       if (this.localUsers.some(function(item) { return item.username === username; })) { this._showToast(zh ? '用户名已存在' : 'Username already exists', 'error'); return; }
       var passwordHash = await this._hashLocalPassword(password);
       try {
         var response = await fetch('api/admin/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: username, displayName: displayName, role: role, passwordHash: passwordHash }) });
-        if (!response.ok) throw new Error();
+        if (!response.ok) {
+          var errorBody = await response.json().catch(function() { return {}; });
+          var message = response.status === 409 ? (zh ? '用户名已存在' : 'Username already exists') : (errorBody.error === 'Invalid username' ? (zh ? '用户名格式不正确' : 'Invalid username format') : (zh ? '账户创建失败' : 'Unable to create account'));
+          this._showToast(message, 'error');
+          return;
+        }
         var created = await response.json();
         this.localUsers.push(created);
         modal.remove();

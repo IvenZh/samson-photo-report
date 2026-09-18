@@ -443,6 +443,13 @@ body {
 
 /* ── Touch / iOS fixes ──────────────────────── */
 input, select, button { -webkit-appearance: none; appearance: none; }
+input[type="checkbox"], input[type="radio"] {
+  -webkit-appearance: auto;
+  appearance: auto;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--blue);
+}
 
 /* ── Tablet + ───────────────────────────────── */
 @media (min-width: 768px) {
