@@ -699,14 +699,16 @@ class SamsonApp {
           }.bind(this)).catch(function() { select.value = target.role; this._showToast(I18n.lang === 'zh' ? '角色更新失败' : 'Role update failed', 'error'); }.bind(this));
         }.bind(this);
       }.bind(this));
-      c.querySelectorAll('[data-user-enabled]').forEach(function(checkbox) {
-        checkbox.onchange = function() {
-          var target = this.localUsers.find(function(item) { return item.username === checkbox.dataset.userEnabled; });
+      c.querySelectorAll('[data-user-toggle]').forEach(function(button) {
+        button.onclick = function() {
+          var target = this.localUsers.find(function(item) { return item.username === button.dataset.userToggle; });
           if (!target) return;
-          fetch('api/admin/users/' + encodeURIComponent(target.username), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: checkbox.checked }) }).then(function(response) {
+          var nextEnabled = target.enabled === false;
+          fetch('api/admin/users/' + encodeURIComponent(target.username), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: nextEnabled }) }).then(function(response) {
             if (!response.ok) throw new Error();
-            target.enabled = checkbox.checked;
-          }).catch(function() { checkbox.checked = !checkbox.checked; this._showToast(I18n.lang === 'zh' ? '账户状态更新失败' : 'Account update failed', 'error'); }.bind(this));
+            target.enabled = nextEnabled;
+            this._renderRoleDashboard(document.getElementById('mainContent'));
+          }.bind(this)).catch(function() { this._showToast(I18n.lang === 'zh' ? '账户状态更新失败' : 'Account update failed', 'error'); }.bind(this));
         }.bind(this);
       }.bind(this));
       c.querySelectorAll('[data-user-password]').forEach(function(button) {
@@ -739,7 +741,8 @@ class SamsonApp {
     var zh = I18n.lang === 'zh';
     var html = '<div class="role-panel"><div class="user-toolbar"><h3>' + (zh ? '用户与角色管理' : 'Users & Roles') + '</h3><button class="btn btn-sm btn-primary" id="addUserBtn">+ ' + (zh ? '增加账户' : 'Add User') + '</button></div>';
     this.localUsers.forEach(function(item) {
-      html += '<div class="user-role-row"><div><strong>' + this._esc(item.displayName) + '</strong><small>' + item.username + '</small></div><div class="user-role-controls"><label><input type="checkbox" data-user-enabled="' + item.username + '"' + (item.enabled !== false ? ' checked' : '') + ' /> ' + (zh ? '启用' : 'Enabled') + '</label><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select><button class="btn btn-sm btn-outline" data-user-password="' + item.username + '">' + (zh ? '改密' : 'Password') + '</button><button class="btn btn-sm btn-ghost" data-delete-user="' + item.username + '">✕</button></div></div>';
+      var enabled = item.enabled !== false;
+      html += '<div class="user-role-row"><strong>' + this._esc(item.username) + '</strong><div class="user-role-controls"><button class="btn btn-sm ' + (enabled ? 'btn-outline' : 'btn-primary') + '" data-user-toggle="' + item.username + '">' + (enabled ? 'Disable' : 'Enable') + '</button><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select><button class="btn btn-sm btn-outline" data-user-password="' + item.username + '">' + (zh ? '改密' : 'Password') + '</button><button class="btn btn-sm btn-ghost" data-delete-user="' + item.username + '">✕</button></div></div>';
     }.bind(this));
     html += '<div class="retention-policy"><h3>30 ' + (zh ? '天数据保留策略' : 'Day Retention Policy') + '</h3><p class="role-note">' + (zh ? '报告、照片、PDF 和 ZIP 从生成之日起保留 30 个自然日，到期后服务器自动彻底删除，不提供恢复。' : 'Reports, photos, PDF and ZIP are kept for 30 calendar days, then permanently deleted by the server.') + '</p></div></div>';
     return html;
@@ -751,7 +754,6 @@ class SamsonApp {
     modal.className = 'modal';
     modal.innerHTML = '<div class="modal-content role-picker-modal"><h3>' + (zh ? '增加账户' : 'Add User') + '</h3>' +
       '<div class="wizard-block"><label>' + (zh ? '用户名' : 'Username') + '</label><input id="newUsername" /></div>' +
-      '<div class="wizard-block"><label>' + (zh ? '显示名' : 'Display Name') + '</label><input id="newDisplayName" /></div>' +
       '<div class="wizard-block"><label>' + (zh ? '密码' : 'Password') + '</label><input id="newPassword" type="password" /></div>' +
       '<div class="wizard-block"><label>' + (zh ? '角色' : 'Role') + '</label><select id="newRole"><option value="operator">Operator</option><option value="supervisor">Supervisor</option><option value="admin">Admin</option></select></div>' +
       '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="saveNewUser">' + (zh ? '保存' : 'Save') + '</button><button class="btn btn-ghost" id="cancelNewUser">' + (zh ? '取消' : 'Cancel') + '</button></div></div>';
@@ -759,10 +761,10 @@ class SamsonApp {
     document.getElementById('cancelNewUser').onclick = function() { modal.remove(); };
     document.getElementById('saveNewUser').onclick = async function() {
       var username = document.getElementById('newUsername').value.trim();
-      var displayName = document.getElementById('newDisplayName').value.trim();
+      var displayName = username;
       var password = document.getElementById('newPassword').value;
       var role = document.getElementById('newRole').value;
-      if (!username || !displayName || !password) { this._showToast(zh ? '请填写全部字段' : 'All fields are required', 'error'); return; }
+      if (!username || !password) { this._showToast(zh ? '请填写用户名、密码和角色' : 'Username, password and role are required', 'error'); return; }
       if (this.localUsers.some(function(item) { return item.username === username; })) { this._showToast(zh ? '用户名已存在' : 'Username already exists', 'error'); return; }
       var passwordHash = await this._hashLocalPassword(password);
       try {
@@ -878,11 +880,9 @@ class SamsonApp {
       var maxWorkload = Math.max.apply(null, workload.map(function(item) { return item.reports; }).concat([1]));
       var maxAction = Math.max.apply(null, actions.map(function(item) { return item.count; }).concat([1]));
       var html = '<div class="admin-overview-toolbar"><select id="adminOverviewRange"><option value="7"' + (days === '7' ? ' selected' : '') + '>' + (zh ? '7天' : '7 days') + '</option><option value="30"' + (days === '30' ? ' selected' : '') + '>' + (zh ? '1个月' : '1 month') + '</option><option value="all"' + (days === 'all' ? ' selected' : '') + '>' + (zh ? '全部' : 'all') + '</option></select></div>';
-      html += '<div class="admin-alert-grid">';
-      if (storage.diskUsagePercent >= 75) html += '<div class="admin-alert danger"><strong>' + storage.diskUsagePercent + '%</strong><span>' + (zh ? '服务器磁盘使用率较高' : 'Server disk usage is high') + '</span></div>';
-      html += '<div class="admin-alert info"><strong>' + this._formatBytes(storage.last24ArchiveBytes) + '</strong><span>' + (zh ? '最近 24 小时归档大小' : 'Archived in last 24h') + '</span></div>';
-      if (retention.expiring.length) html += '<div class="admin-alert warning"><strong>' + retention.expiring.length + '</strong><span>' + (zh ? '份报告将在 7 天内自动删除' : 'reports will be deleted within 7 days') + '</span></div>';
-      html += '</div>';
+      if (retention.expiring.length) {
+        html += '<div class="admin-alert-grid"><div class="admin-alert warning"><strong>' + retention.expiring.length + '</strong><span>' + (zh ? '份报告将在 7 天内自动删除' : 'reports will be deleted within 7 days') + '</span></div></div>';
+      }
       html += '<div class="admin-summary-cards">' +
         '<div class="admin-card"><strong>' + summary.totalReports + '</strong><span>' + (zh ? '总报告' : 'Total Reports') + '</span></div>' +
         '<div class="admin-card"><strong>' + summary.todayReports + '</strong><span>' + (zh ? '今日报告' : 'Today') + '</span></div>' +
@@ -926,7 +926,9 @@ class SamsonApp {
     var zh = I18n.lang === 'zh';
     if (!reports.length) { results.innerHTML = '<p class="batch-empty">' + (zh ? '没有匹配的报告' : 'No matching reports') + '</p>'; return; }
     var html = '';
-    if (this.currentUser.role === 'admin') html += '<div class="dashboard-bulk-actions"><button class="btn btn-sm btn-danger" id="deleteSelectedReports">' + (zh ? '删除选中报告' : 'Delete Selected') + '</button></div>';
+    if (this.currentUser.role === 'admin') {
+      html += '<div class="dashboard-bulk-actions"><label class="dashboard-select-all"><input type="checkbox" id="selectAllReports" /> ' + (zh ? '全选' : 'Select all') + '</label><button class="btn btn-sm btn-danger" id="deleteSelectedReports" disabled>' + (zh ? '删除选中报告' : 'Delete Selected') + '</button></div>';
+    }
     html += '<div class="dashboard-report-list">';
     reports.forEach(function(report, index) {
       var date = String(report.createdAt || '').slice(0, 10);
@@ -940,7 +942,21 @@ class SamsonApp {
     results.querySelectorAll('[data-dashboard-view]').forEach(function(button) { button.onclick = function() { this._viewDashboardReport(this._dashboardReports[Number(button.dataset.dashboardView)]); }.bind(this); }.bind(this));
     results.querySelectorAll('[data-dashboard-pdf]').forEach(function(button) { button.onclick = function() { this._downloadDashboardReport(this._dashboardReports[Number(button.dataset.dashboardPdf)], 'report'); }.bind(this); }.bind(this));
     results.querySelectorAll('[data-dashboard-zip]').forEach(function(button) { button.onclick = function() { this._downloadDashboardReport(this._dashboardReports[Number(button.dataset.dashboardZip)], 'zip'); }.bind(this); }.bind(this));
-    if (document.getElementById('deleteSelectedReports')) document.getElementById('deleteSelectedReports').onclick = function() { this._deleteSelectedReports(); }.bind(this);
+    if (this.currentUser.role === 'admin') {
+      var boxes = Array.from(results.querySelectorAll('[data-report-id]'));
+      var selectAll = document.getElementById('selectAllReports');
+      var deleteButton = document.getElementById('deleteSelectedReports');
+      var updateBulkState = function() {
+        var checked = boxes.filter(function(box) { return box.checked; }).length;
+        deleteButton.disabled = checked === 0;
+        selectAll.checked = checked > 0 && checked === boxes.length;
+        selectAll.indeterminate = checked > 0 && checked < boxes.length;
+      };
+      boxes.forEach(function(box) { box.onchange = updateBulkState; });
+      selectAll.onchange = function() { boxes.forEach(function(box) { box.checked = selectAll.checked; }); updateBulkState(); };
+      updateBulkState();
+      deleteButton.onclick = function() { this._deleteSelectedReports(); }.bind(this);
+    }
   }
 
   _deleteSelectedReports() {
