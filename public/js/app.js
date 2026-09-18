@@ -861,15 +861,20 @@ class SamsonApp {
     root.innerHTML = '<p class="dashboard-loading">Loading…</p>';
     try {
       var days = this._adminSummaryRange || '7';
-      var summary = await fetch('api/admin/dashboard/summary').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
-      var workload = await fetch('api/admin/dashboard/operator-workload').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
-      var activity = await fetch('api/admin/dashboard/recent-activity').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
-      var trends = await fetch('api/admin/dashboard/trends?days=' + days).then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
-      var actions = await fetch('api/admin/dashboard/activity-summary?days=' + days).then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
-      var storage = await fetch('api/admin/dashboard/storage').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
-      var retention = await fetch('api/admin/dashboard/retention').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
-      var recentSessions = await fetch('api/admin/dashboard/recent-sessions').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
-      var recentReports = await fetch('api/admin/dashboard/recent-reports').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
+      var getJSON = function(url) { return fetch(url).then(function(res) { if (!res.ok) throw new Error(); return res.json(); }); };
+      var responses = await Promise.all([
+        getJSON('api/admin/dashboard/summary'),
+        getJSON('api/admin/dashboard/operator-workload'),
+        getJSON('api/admin/dashboard/recent-activity'),
+        getJSON('api/admin/dashboard/trends?days=' + days),
+        getJSON('api/admin/dashboard/activity-summary?days=' + days),
+        getJSON('api/admin/dashboard/storage'),
+        getJSON('api/admin/dashboard/retention'),
+        getJSON('api/admin/dashboard/recent-sessions'),
+        getJSON('api/admin/dashboard/recent-reports')
+      ]);
+      var summary = responses[0], workload = responses[1], activity = responses[2], trends = responses[3], actions = responses[4];
+      var storage = responses[5], retention = responses[6], recentSessions = responses[7], recentReports = responses[8];
       var cutoff = days === 'all' ? 0 : Date.now() - Number(days) * 86400000;
       var withinDays = function(item) {
         if (days === 'all') return true;
