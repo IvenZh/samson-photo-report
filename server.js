@@ -155,7 +155,7 @@ app.get('/api/dashboard/reports', (req, res) => {
           downloadUrl: `api/reports/${encodeURIComponent(dir.name)}/download`
         };
         if (date && String(report.createdAt).slice(0, 10) !== date) return;
-        if (operator && String(report.operator).toLowerCase().indexOf(operator) < 0) return;
+        if (operator && String(report.operator).toLowerCase().replace(/[._-]+/g, ' ').indexOf(operator.replace(/[._-]+/g, ' ')) < 0) return;
         if (ifs && String(report.contractNo).toLowerCase().indexOf(ifs) < 0 && String(report.ifsNo).toLowerCase().indexOf(ifs) < 0) return;
         if (pos && String(report.positionNo).replace(/^Pos\s*/i, '').toLowerCase().indexOf(pos) < 0) return;
         reports.push(report);
