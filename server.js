@@ -56,6 +56,36 @@ function appendAudit(entry) {
   } catch (e) {}
 }
 
+function readReports() {
+  var reports = [];
+  if (!fs.existsSync(REPORTS_DIR)) return reports;
+  fs.readdirSync(REPORTS_DIR, { withFileTypes: true }).filter(function(entry) { return entry.isDirectory(); }).forEach(function(dir) {
+    try {
+      var file = path.join(REPORTS_DIR, dir.name, 'report.json');
+      if (!fs.existsSync(file)) return;
+      var data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      var meta = data.meta || {};
+      reports.push({
+        id: data.id || dir.name,
+        createdAt: data.createdAt || '',
+        contractNo: meta.contractNo || meta.ifsNo || '',
+        ifsNo: meta.ifsNo || meta.contractNo || '',
+        positionNo: meta.positionNo || '',
+        tagNo: meta.tagNo || '',
+        serialNo: meta.serialNo || '',
+        valveType: meta.valveType || '',
+        operator: meta.operatorName || meta.operatorId || meta.recorder || '',
+        operatorId: meta.operatorId || meta.operatorName || meta.recorder || '',
+        sessionId: meta.sessionId || '',
+        reportUrl: `api/reports/${encodeURIComponent(dir.name)}/files/${encodeURIComponent(dir.name + '.pdf')}`,
+        downloadUrl: `api/reports/${encodeURIComponent(dir.name)}/download`
+      });
+    } catch (e) {}
+  });
+  reports.sort(function(a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
+  return reports;
+}
+
 // Middleware
 app.use(express.json({ limit: '100mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -180,6 +210,47 @@ app.get('/api/dashboard/audit', (req, res) => {
     try { return JSON.parse(line); } catch (e) { return null; }
   }).filter(Boolean);
   res.json(lines.slice(-limit).reverse());
+});
+
+app.get('/api/admin/dashboard/summary', (req, res) => {
+  var reports = readReports();
+  var now = new Date();
+  var today = now.toISOString().slice(0, 10);
+  var todayReports = reports.filter(function(r) { return String(r.createdAt).slice(0, 10) === today; });
+  var sessions = {};
+  var operators = {};
+  reports.forEach(function(r) {
+    if (r.sessionId) sessions[r.sessionId] = true;
+    if (r.operator) operators[r.operator] = true;
+  });
+  res.json({
+    totalReports: reports.length,
+    todayReports: todayReports.length,
+    totalSessions: Object.keys(sessions).length,
+    totalOperators: Object.keys(operators).length
+  });
+});
+
+app.get('/api/admin/dashboard/operator-workload', (req, res) => {
+  var reports = readReports();
+  var workload = {};
+  reports.forEach(function(r) {
+    if (!r.operator) return;
+    if (!workload[r.operator]) workload[r.operator] = { operator: r.operator, reports: 0, sessions: {} };
+    workload[r.operator].reports++;
+    if (r.sessionId) workload[r.operator].sessions[r.sessionId] = true;
+  });
+  res.json(Object.keys(workload).map(function(key) {
+    return { operator: workload[key].operator, reports: workload[key].reports, sessions: Object.keys(workload[key].sessions).length };
+  }));
+});
+
+app.get('/api/admin/dashboard/recent-activity', (req, res) => {
+  if (!fs.existsSync(AUDIT_LOG_FILE)) return res.json([]);
+  var lines = fs.readFileSync(AUDIT_LOG_FILE, 'utf8').trim().split('\n').filter(Boolean).map(function(line) {
+    try { return JSON.parse(line); } catch (e) { return null; }
+  }).filter(Boolean);
+  res.json(lines.slice(-20).reverse());
 });
 
 app.post('/api/sessions/package', async (req, res) => {

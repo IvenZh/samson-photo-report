@@ -62,20 +62,20 @@ class SamsonApp {
 
   _loadRoleDemoUsers() {
     var defaults = [
-      { username: 'liuyang', displayName: 'Liu Yang', role: 'operator' },
-      { username: 'liuzhixin', displayName: 'Liu Zhixin', role: 'operator' },
-      { username: 'yanbo', displayName: 'Yan Bo', role: 'operator' },
-      { username: 'zhanglin', displayName: 'Zhang Lin', role: 'operator' },
-      { username: 'zhonghaitao', displayName: 'Zhong Haitao', role: 'operator' },
-      { username: 'sunqiang', displayName: 'Sun Qiang', role: 'supervisor' },
-      { username: 'zhaofeng', displayName: 'Zhao Feng', role: 'admin' }
+      { username: 'liuyang', displayName: 'Liu Yang', role: 'operator', enabled: true },
+      { username: 'liuzhixin', displayName: 'Liu Zhixin', role: 'operator', enabled: true },
+      { username: 'yanbo', displayName: 'Yan Bo', role: 'operator', enabled: true },
+      { username: 'zhanglin', displayName: 'Zhang Lin', role: 'operator', enabled: true },
+      { username: 'zhonghaitao', displayName: 'Zhong Haitao', role: 'operator', enabled: true },
+      { username: 'sunqiang', displayName: 'Sun Qiang', role: 'supervisor', enabled: true },
+      { username: 'zhaofeng', displayName: 'Zhao Feng', role: 'admin', enabled: true }
     ];
     try {
       var saved = JSON.parse(localStorage.getItem('samson_role_demo_users') || 'null');
       if (!Array.isArray(saved) || !saved.length) return defaults;
       return defaults.map(function(user) {
         var match = saved.find(function(item) { return item.username === user.username; });
-        return match ? Object.assign({}, user, { role: match.role || user.role }) : user;
+        return match ? Object.assign({}, user, { role: match.role || user.role, enabled: typeof match.enabled === 'boolean' ? match.enabled : true }) : user;
       });
     } catch (e) { return defaults; }
   }
@@ -158,6 +158,11 @@ class SamsonApp {
       var ok = await this._verifyLocalPassword(password);
       if (!ok) {
         document.getElementById('roleLoginError').textContent = zh ? '密码错误' : 'Incorrect password';
+        return;
+      }
+      var selectedUser = this.localUsers.find(function(item) { return item.username === username; });
+      if (!selectedUser || selectedUser.enabled === false) {
+        document.getElementById('roleLoginError').textContent = zh ? '该账号已被禁用' : 'This account is disabled';
         return;
       }
       modal.remove();
@@ -632,6 +637,7 @@ class SamsonApp {
     var operatorOptions = this.localUsers.map(function(item) { return '<option value="' + this._esc(item.displayName) + '">' + this._esc(item.displayName) + '</option>'; }.bind(this)).join('');
     var html = '<div class="batch-page">';
     html += '<div class="batch-summary"><div><strong>' + this._esc(user.displayName) + '</strong><small>' + this._roleLabel(user.role) + ' · ' + (zh ? '服务器报告看板' : 'Server Report Dashboard') + '</small></div></div>';
+    if (user.role === 'admin') html += '<div id="adminSummary" class="admin-summary"></div>';
     html += '<div class="role-panel"><h3>' + (zh ? '全部照片报告' : 'All Photo Reports') + '</h3><div class="dashboard-filters">' +
       '<label>' + (zh ? '日期' : 'Date') + '<input type="date" id="dashDate" /></label>' +
       '<label>Operator<input id="dashOperator" list="dashboardOperatorList" /></label><datalist id="dashboardOperatorList">' + operatorOptions + '</datalist>' +
@@ -643,7 +649,7 @@ class SamsonApp {
     if (user.role === 'admin') {
       html += '<div class="role-panel"><h3>' + (zh ? '用户与角色管理' : 'Users & Roles') + '</h3>';
       this.localUsers.forEach(function(item) {
-        html += '<div class="user-role-row"><div><strong>' + this._esc(item.displayName) + '</strong><small>' + item.username + '</small></div><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select></div>';
+        html += '<div class="user-role-row"><div><strong>' + this._esc(item.displayName) + '</strong><small>' + item.username + '</small></div><div class="user-role-controls"><label><input type="checkbox" data-user-enabled="' + item.username + '"' + (item.enabled !== false ? ' checked' : '') + ' /> ' + (zh ? '启用' : 'Enabled') + '</label><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select></div></div>';
       }.bind(this));
       html += '<div class="batch-actions"><button class="btn btn-primary" id="adminEnterCapture">' + (zh ? '进入拍照任务' : 'Enter Capture Mode') + '</button><button class="btn btn-outline" id="showAuditLog">' + (zh ? '查看审计日志' : 'Audit Log') + '</button></div></div>';
       html += '<div class="role-panel"><h3>30 ' + (zh ? '天数据保留策略' : 'Day Retention Policy') + '</h3><p class="role-note">' + (zh ? '报告、照片、PDF 和 ZIP 从生成之日起保留 30 个自然日，到期后服务器自动彻底删除，不提供恢复。' : 'Reports, photos, PDF and ZIP are kept for 30 calendar days, then permanently deleted by the server.') + '</p></div>';
@@ -661,7 +667,14 @@ class SamsonApp {
     }.bind(this));
     if (document.getElementById('adminEnterCapture')) document.getElementById('adminEnterCapture').onclick = function() { this._roleDashboard = false; this.currentStep = 1; this.render(); }.bind(this);
     if (document.getElementById('showAuditLog')) document.getElementById('showAuditLog').onclick = () => this._showAuditLog();
+    c.querySelectorAll('[data-user-enabled]').forEach(function(checkbox) {
+      checkbox.onchange = function() {
+        var target = this.localUsers.find(function(item) { return item.username === checkbox.dataset.userEnabled; });
+        if (target) { target.enabled = checkbox.checked; this._saveRoleDemoUsers(); this.render(); }
+      }.bind(this);
+    }.bind(this));
     this._queryDashboardReports();
+    if (user.role === 'admin') this._loadAdminSummary();
   }
 
   _dashboardFilters() {
@@ -689,6 +702,32 @@ class SamsonApp {
       this._renderDashboardResults(reports);
     } catch (err) {
       results.innerHTML = '<p style="color:red;">' + (I18n.lang === 'zh' ? '加载报告失败：' : 'Failed to load reports: ') + err.message + '</p>';
+    }
+  }
+
+  async _loadAdminSummary() {
+    var root = document.getElementById('adminSummary');
+    if (!root) return;
+    var zh = I18n.lang === 'zh';
+    root.innerHTML = '<p class="dashboard-loading">Loading…</p>';
+    try {
+      var summary = await fetch('api/admin/dashboard/summary').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
+      var workload = await fetch('api/admin/dashboard/operator-workload').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
+      var activity = await fetch('api/admin/dashboard/recent-activity').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
+      var html = '<div class="admin-summary-cards">' +
+        '<div class="admin-card"><strong>' + summary.totalReports + '</strong><span>' + (zh ? '总报告' : 'Total Reports') + '</span></div>' +
+        '<div class="admin-card"><strong>' + summary.todayReports + '</strong><span>' + (zh ? '今日报告' : 'Today') + '</span></div>' +
+        '<div class="admin-card"><strong>' + summary.totalSessions + '</strong><span>' + (zh ? 'Session 数' : 'Sessions') + '</span></div>' +
+        '<div class="admin-card"><strong>' + summary.totalOperators + '</strong><span>' + (zh ? 'Operator 数' : 'Operators') + '</span></div></div>';
+      if (workload.length) {
+        html += '<div class="admin-summary-workload"><h4>' + (zh ? 'Operator 工作量' : 'Operator Workload') + '</h4>' + workload.slice(0, 6).map(function(item) { return '<div class="admin-workload-row"><span>' + this._esc(item.operator) + '</span><strong>' + item.reports + ' ' + (zh ? '份报告' : 'reports') + '</strong></div>'; }.bind(this)).join('') + '</div>';
+      }
+      if (activity.length) {
+        html += '<div class="admin-summary-activity"><h4>' + (zh ? '最近活动' : 'Recent Activity') + '</h4>' + activity.slice(0, 8).map(function(item) { return '<div class="admin-activity-row"><strong>' + this._esc(item.actor || '-') + '</strong><span>' + this._esc(item.action || '-') + '</span></div>'; }.bind(this)).join('') + '</div>';
+      }
+      root.innerHTML = html;
+    } catch (e) {
+      root.innerHTML = '<p style="color:red;">' + (zh ? '无法加载驾驶舱数据' : 'Unable to load dashboard') + '</p>';
     }
   }
 

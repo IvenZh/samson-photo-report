@@ -649,6 +649,19 @@ input, select, button { -webkit-appearance: none; appearance: none; }
 .audit-log-row strong { color: var(--blue); font-size: .8rem; }
 .audit-log-row span { color: var(--gray-600); font-size: .78rem; }
 .audit-log-row small { color: var(--gray-400); font-size: .68rem; }
+.user-role-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.user-role-controls label { display: flex; align-items: center; gap: 5px; color: var(--gray-600); font-size: .74rem; }
+.admin-summary { display: flex; flex-direction: column; gap: 12px; }
+.admin-summary-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.admin-card { padding: 14px; background: #fff; border: 1px solid var(--gray-200); border-radius: var(--radius); display: flex; flex-direction: column; gap: 4px; }
+.admin-card strong { color: var(--blue); font-size: 1.35rem; }
+.admin-card span { color: var(--gray-400); font-size: .74rem; }
+.admin-summary-workload, .admin-summary-activity { padding: 12px; background: #fff; border: 1px solid var(--gray-200); border-radius: var(--radius); }
+.admin-summary-workload h4, .admin-summary-activity h4 { color: var(--blue); font-size: .84rem; margin-bottom: 8px; }
+.admin-workload-row, .admin-activity-row { display: flex; justify-content: space-between; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--gray-100); font-size: .76rem; }
+.admin-activity-row { align-items: center; }
+.admin-activity-row strong { color: var(--gray-800); }
+.admin-activity-row span { color: var(--gray-400); }
 .session-progress-badge {
   position: fixed;
   left: 10px;
