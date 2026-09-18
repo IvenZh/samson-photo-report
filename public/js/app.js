@@ -746,7 +746,7 @@ class SamsonApp {
       html += '<div class="user-role-row"><strong class="user-name">' + this._esc(item.username) + '</strong><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select><button class="btn btn-sm user-status-toggle ' + (enabled ? 'is-enabled' : 'is-disabled') + '" data-user-toggle="' + item.username + '">' + (enabled ? 'Disable' : 'Enable') + '</button><button class="btn btn-sm btn-outline" data-user-password="' + item.username + '">' + (zh ? '重置' : 'Reset') + '</button><button class="btn btn-sm btn-ghost user-delete-btn" data-delete-user="' + item.username + '">' + (zh ? '删除' : 'Delete') + '</button></div>';
     }.bind(this));
     html += '</div>';
-    html += '<div class="retention-policy"><h3>30 ' + (zh ? '天数据保留策略' : 'Day Retention Policy') + '</h3><p class="role-note">' + (zh ? '报告、照片、PDF 和 ZIP 从生成之日起保留 30 个自然日，到期后服务器自动彻底删除，不提供恢复。' : 'Reports, photos, PDF and ZIP are kept for 30 calendar days, then permanently deleted by the server.') + '</p></div></div>';
+    html += '</div>';
     return html;
   }
 
