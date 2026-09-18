@@ -701,6 +701,9 @@ input, select, button { -webkit-appearance: none; appearance: none; }
 .admin-table-row { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--gray-100); }
 .admin-table-row strong { color: var(--gray-800); font-size: .72rem; }
 .admin-table-row span { color: var(--gray-500); font-size: .68rem; }
+.admin-scroll-h { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 6px; }
+.admin-scroll-h .mini-bar-chart { min-width: 520px; }
+.admin-scroll-list { max-height: 260px; overflow: auto; -webkit-overflow-scrolling: touch; padding-right: 3px; }
 .audit-panel {
   position: fixed;
   inset: 0;

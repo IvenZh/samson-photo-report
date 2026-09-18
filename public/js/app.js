@@ -737,7 +737,7 @@ class SamsonApp {
     var zh = I18n.lang === 'zh';
     root.innerHTML = '<p class="dashboard-loading">Loading…</p>';
     try {
-      var days = this._adminSummaryRange || 7;
+      var days = this._adminSummaryRange || '7';
       var summary = await fetch('api/admin/dashboard/summary').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
       var workload = await fetch('api/admin/dashboard/operator-workload').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
       var activity = await fetch('api/admin/dashboard/recent-activity').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
@@ -747,33 +747,41 @@ class SamsonApp {
       var retention = await fetch('api/admin/dashboard/retention').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
       var recentSessions = await fetch('api/admin/dashboard/recent-sessions').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
       var recentReports = await fetch('api/admin/dashboard/recent-reports').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
+      var cutoff = days === 'all' ? 0 : Date.now() - Number(days) * 86400000;
+      var withinDays = function(item) {
+        if (days === 'all') return true;
+        return new Date(item.createdAt || item.timestamp || item.date).getTime() >= cutoff;
+      };
       var maxTrend = Math.max.apply(null, trends.map(function(item) { return item.reports; }).concat([1]));
       var maxWorkload = Math.max.apply(null, workload.map(function(item) { return item.reports; }).concat([1]));
       var maxAction = Math.max.apply(null, actions.map(function(item) { return item.count; }).concat([1]));
-      var html = '<div class="admin-overview-toolbar"><select id="adminOverviewRange"><option value="7"' + (days === 7 ? ' selected' : '') + '>7 days</option><option value="30"' + (days === 30 ? ' selected' : '') + '>30 days</option></select></div>';
+      var html = '<div class="admin-overview-toolbar"><select id="adminOverviewRange"><option value="7"' + (days === '7' ? ' selected' : '') + '>7 days</option><option value="30"' + (days === '30' ? ' selected' : '') + '>1 month</option><option value="all"' + (days === 'all' ? ' selected' : '') + '>all</option></select></div>';
       html += '<div class="admin-summary-cards">' +
         '<div class="admin-card"><strong>' + summary.totalReports + '</strong><span>' + (zh ? '总报告' : 'Total Reports') + '</span></div>' +
         '<div class="admin-card"><strong>' + summary.todayReports + '</strong><span>' + (zh ? '今日报告' : 'Today') + '</span></div>' +
         '<div class="admin-card"><strong>' + summary.totalSessions + '</strong><span>' + (zh ? 'Session 数' : 'Sessions') + '</span></div>' +
         '<div class="admin-card"><strong>' + summary.totalOperators + '</strong><span>' + (zh ? 'Operator 数' : 'Operators') + '</span></div>' +
-        '<div class="admin-card"><strong>' + storage.diskUsagePercent + '%</strong><span>' + (zh ? '磁盘使用率' : 'Disk Usage') + '</span></div>' +
+        '<div class="admin-card"><strong>' + storage.diskUsagePercent + '%</strong><span>' + (zh ? '磁盘：已用 ' + this._formatBytes(storage.diskUsedBytes) + ' / 可用 ' + this._formatBytes(storage.diskFreeBytes) : 'Disk: ' + this._formatBytes(storage.diskUsedBytes) + ' used / ' + this._formatBytes(storage.diskFreeBytes) + ' free') + '</span></div>' +
         '<div class="admin-card"><strong>' + retention.expiring.length + '</strong><span>' + (zh ? '7天内到期' : 'Expiring Soon') + '</span></div></div>';
-      html += '<div class="admin-chart-grid"><div class="admin-chart"><h4>' + (zh ? '报告趋势' : 'Report Trend') + '</h4><div class="mini-bar-chart">' + trends.map(function(item) { return '<div class="mini-bar-item"><span>' + item.reports + '</span><i style="height:' + Math.round((item.reports / maxTrend) * 100) + '%"></i><small>' + item.date.slice(5) + '</small></div>'; }).join('') + '</div></div>';
-      html += '<div class="admin-chart"><h4>' + (zh ? 'Operator 工作量' : 'Operator Workload') + '</h4><div class="admin-hbar-list">' + workload.slice(0, 8).map(function(item) { return '<div class="admin-hbar-row"><strong>' + this._esc(item.operator) + '</strong><div class="admin-hbar-track"><i style="width:' + Math.round((item.reports / maxWorkload) * 100) + '%"></i></div><span>' + item.reports + '</span></div>'; }.bind(this)).join('') + '</div></div></div>';
-      html += '<div class="admin-chart-grid"><div class="admin-chart"><h4>' + (zh ? '动作分布' : 'Action Distribution') + '</h4><div class="mini-bar-chart horizontal">' + actions.slice(0, 8).map(function(item) { return '<div class="mini-bar-item"><span>' + item.count + '</span><i style="width:' + Math.round((item.count / maxAction) * 100) + '%"></i><small>' + this._esc(item.action) + '</small></div>'; }.bind(this)).join('') + '</div></div></div>';
-      if (activity.length) {
-        html += '<div class="admin-summary-activity"><h4>' + (zh ? '最近活动' : 'Recent Activity') + '</h4>' + activity.slice(0, 8).map(function(item) { return '<div class="admin-activity-row"><strong>' + this._esc(item.actor || '-') + '</strong><span>' + this._esc(item.action || '-') + '</span></div>'; }.bind(this)).join('') + '</div>';
+      html += '<div class="admin-chart-grid"><div class="admin-chart"><h4>' + (zh ? '报告趋势' : 'Report Trend') + '</h4><div class="admin-scroll-h"><div class="mini-bar-chart">' + trends.map(function(item) { return '<div class="mini-bar-item"><span>' + item.reports + '</span><i style="height:' + Math.round((item.reports / maxTrend) * 100) + '%"></i><small>' + item.date.slice(5) + '</small></div>'; }).join('') + '</div></div></div>';
+      html += '<div class="admin-chart"><h4>' + (zh ? 'Operator 工作量' : 'Operator Workload') + '</h4><div class="admin-scroll-list"><div class="admin-hbar-list">' + workload.slice(0, 8).map(function(item) { return '<div class="admin-hbar-row"><strong>' + this._esc(item.operator) + '</strong><div class="admin-hbar-track"><i style="width:' + Math.round((item.reports / maxWorkload) * 100) + '%"></i></div><span>' + item.reports + '</span></div>'; }.bind(this)).join('') + '</div></div></div></div>';
+      html += '<div class="admin-chart-grid"><div class="admin-chart"><h4>' + (zh ? '动作分布' : 'Action Distribution') + '</h4><div class="admin-scroll-list"><div class="mini-bar-chart horizontal">' + actions.slice(0, 8).map(function(item) { return '<div class="mini-bar-item"><span>' + item.count + '</span><i style="width:' + Math.round((item.count / maxAction) * 100) + '%"></i><small>' + this._esc(item.action) + '</small></div>'; }.bind(this)).join('') + '</div></div></div></div>';
+      var filteredActivity = activity.filter(withinDays);
+      if (filteredActivity.length) {
+        html += '<div class="admin-summary-activity"><h4>' + (zh ? '最近活动' : 'Recent Activity') + '</h4><div class="admin-scroll-list">' + filteredActivity.slice(0, 30).map(function(item) { return '<div class="admin-activity-row"><strong>' + this._esc(item.actor || '-') + '</strong><span>' + this._esc(item.action || '-') + '</span></div>'; }.bind(this)).join('') + '</div></div>';
       }
       html += '<div class="admin-alert-grid">';
       if (retention.expiring.length) html += '<div class="admin-alert warning"><strong>' + retention.expiring.length + '</strong><span>' + (zh ? '份报告将在 7 天内自动删除' : 'reports will be deleted within 7 days') + '</span></div>';
       if (storage.diskUsagePercent >= 75) html += '<div class="admin-alert danger"><strong>' + storage.diskUsagePercent + '%</strong><span>' + (zh ? '服务器磁盘使用率较高' : 'Server disk usage is high') + '</span></div>';
       html += '<div class="admin-alert info"><strong>' + this._formatBytes(storage.last24ArchiveBytes) + '</strong><span>' + (zh ? '最近 24 小时归档大小' : 'Archived in last 24h') + '</span></div></div>';
+      var filteredSessions = recentSessions.filter(withinDays);
+      var filteredReports = recentReports.filter(withinDays);
       html += '<div class="admin-recent-grid">';
-      html += '<div class="admin-chart"><h4>' + (zh ? '最近 Session' : 'Recent Sessions') + '</h4><div class="admin-table-list">' + recentSessions.map(function(item) { return '<div class="admin-table-row"><strong>' + this._esc(item.sessionId) + '</strong><span>' + this._esc(item.operator) + ' · ' + item.reports + ' ' + (zh ? '份报告' : 'reports') + '</span></div>'; }.bind(this)).join('') + '</div></div>';
-      html += '<div class="admin-chart"><h4>' + (zh ? '最近报告' : 'Recent Reports') + '</h4><div class="admin-table-list">' + recentReports.map(function(item) { return '<div class="admin-table-row"><strong>' + this._esc(item.contractNo || '-') + ' · Pos' + this._esc(item.positionNo || '-') + '</strong><span>' + this._esc(item.tagNo || '-') + ' · ' + this._esc(item.operator || '-') + '</span></div>'; }.bind(this)).join('') + '</div></div></div>';
+      html += '<div class="admin-chart"><h4>' + (zh ? '最近 Session' : 'Recent Sessions') + '</h4><div class="admin-scroll-list"><div class="admin-table-list">' + filteredSessions.map(function(item) { return '<div class="admin-table-row"><strong>' + this._esc(item.sessionId) + '</strong><span>' + this._esc(item.operator) + ' · ' + item.reports + ' ' + (zh ? '份报告' : 'reports') + '</span></div>'; }.bind(this)).join('') + '</div></div></div>';
+      html += '<div class="admin-chart"><h4>' + (zh ? '最近报告' : 'Recent Reports') + '</h4><div class="admin-scroll-list"><div class="admin-table-list">' + filteredReports.map(function(item) { return '<div class="admin-table-row"><strong>' + this._esc(item.contractNo || '-') + ' · Pos' + this._esc(item.positionNo || '-') + '</strong><span>' + this._esc(item.tagNo || '-') + ' · ' + this._esc(item.operator || '-') + '</span></div>'; }.bind(this)).join('') + '</div></div></div></div>';
       root.innerHTML = html;
       document.getElementById('adminOverviewRange').onchange = function() {
-        this._adminSummaryRange = Number(document.getElementById('adminOverviewRange').value);
+        this._adminSummaryRange = document.getElementById('adminOverviewRange').value;
         this._loadAdminSummary();
       }.bind(this);
     } catch (e) {

@@ -74,8 +74,8 @@ function readReports() {
         tagNo: meta.tagNo || '',
         serialNo: meta.serialNo || '',
         valveType: meta.valveType || '',
-        operator: meta.operatorName || meta.operatorId || meta.recorder || '',
-        operatorId: meta.operatorId || meta.operatorName || meta.recorder || '',
+        operator: meta.operatorName || meta.operatorId || '',
+        operatorId: meta.operatorId || meta.operatorName || '',
         sessionId: meta.sessionId || '',
         reportUrl: `api/reports/${encodeURIComponent(dir.name)}/files/${encodeURIComponent(dir.name + '.pdf')}`,
         downloadUrl: `api/reports/${encodeURIComponent(dir.name)}/download`
@@ -189,8 +189,8 @@ app.get('/api/dashboard/reports', (req, res) => {
           tagNo: meta.tagNo || '',
           serialNo: meta.serialNo || '',
           valveType: meta.valveType || '',
-          operator: meta.operatorName || meta.operatorId || meta.recorder || '',
-          operatorId: meta.operatorId || meta.operatorName || meta.recorder || '',
+          operator: meta.operatorName || meta.operatorId || '',
+          operatorId: meta.operatorId || meta.operatorName || '',
           sessionId: meta.sessionId || '',
           reportUrl: `api/reports/${encodeURIComponent(dir.name)}/files/${encodeURIComponent(dir.name + '.pdf')}`,
           downloadUrl: `api/reports/${encodeURIComponent(dir.name)}/download`
@@ -265,7 +265,7 @@ app.get('/api/admin/dashboard/recent-activity', (req, res) => {
 });
 
 app.get('/api/admin/dashboard/trends', (req, res) => {
-  var days = Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
+  var days = req.query.days === 'all' ? 365 : Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
   var reports = readReports();
   var today = new Date();
   var result = [];
@@ -279,7 +279,7 @@ app.get('/api/admin/dashboard/trends', (req, res) => {
 });
 
 app.get('/api/admin/dashboard/activity-summary', (req, res) => {
-  var days = Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
+  var days = req.query.days === 'all' ? 365 : Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
   if (!fs.existsSync(AUDIT_LOG_FILE)) return res.json([]);
   var now = Date.now();
   var counts = {};
@@ -305,14 +305,15 @@ app.get('/api/admin/dashboard/storage', (req, res) => {
       } catch (e) {}
     });
   }
-  var diskTotal = 0, diskFree = 0, diskUsagePercent = 0;
+  var diskTotal = 0, diskFree = 0, diskUsed = 0, diskUsagePercent = 0;
   try {
     var stats = fs.statfsSync('/');
     diskTotal = stats.blocks * stats.bsize;
     diskFree = stats.bfree * stats.bsize;
+    diskUsed = diskTotal - diskFree;
     diskUsagePercent = diskTotal ? Math.round(((diskTotal - diskFree) / diskTotal) * 100) : 0;
   } catch (e) {}
-  res.json({ reportsSizeBytes: reportsSize, last24ArchiveBytes: last24ArchiveBytes, diskTotalBytes: diskTotal, diskFreeBytes: diskFree, diskUsagePercent: diskUsagePercent });
+  res.json({ reportsSizeBytes: reportsSize, last24ArchiveBytes: last24ArchiveBytes, diskTotalBytes: diskTotal, diskFreeBytes: diskFree, diskUsedBytes: diskUsed, diskUsagePercent: diskUsagePercent });
 });
 
 app.get('/api/admin/dashboard/retention', (req, res) => {
