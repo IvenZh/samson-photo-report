@@ -628,29 +628,30 @@ class SamsonApp {
   _renderRoleDashboard(c) {
     var zh = I18n.lang === 'zh';
     var user = this.currentUser;
+    var operatorOptions = this.localUsers.map(function(item) { return '<option value="' + this._esc(item.displayName) + '">' + this._esc(item.displayName) + '</option>'; }.bind(this)).join('');
     var html = '<div class="batch-page">';
-    html += '<div class="batch-summary"><div><strong>' + this._esc(user.displayName) + '</strong><small>' + this._roleLabel(user.role) + ' · 本地角色模拟</small></div></div>';
-    if (user.role === 'supervisor') {
-      html += '<div class="role-panel"><h3>' + (zh ? '全部拍照任务和报告' : 'All Capture Sessions and Reports') + '</h3>';
-      var valves = this.batch ? this.batch.valves : [];
-      if (!valves.length) html += '<p class="batch-empty">' + (zh ? '当前没有可查看的拍照任务。' : 'No capture sessions available.') + '</p>';
-      valves.forEach(function(valve) {
-        var status = this._calculateValveStatus(valve);
-        html += '<div class="completed-report-row"><div><strong>Pos' + this._normalizePosNumber(valve.positionNo) + ' · ' + this._esc(valve.tagNo || valve.serialNo) + '</strong><small>' + this._esc(valve.ifsOrderNo) + ' · ' + this._statusLabel(status) + '</small></div><div class="completed-report-actions">';
-        if (valve.serverArchive) html += '<a class="btn btn-sm btn-outline" href="' + valve.serverArchive.reportUrl + '" download>PDF</a><a class="btn btn-sm btn-outline" href="' + valve.serverArchive.downloadUrl + '" download>ZIP</a>';
-        html += '</div></div>';
-      }.bind(this));
-      html += '</div>';
-    } else if (user.role === 'admin') {
+    html += '<div class="batch-summary"><div><strong>' + this._esc(user.displayName) + '</strong><small>' + this._roleLabel(user.role) + ' · ' + (zh ? '服务器报告看板' : 'Server Report Dashboard') + '</small></div></div>';
+    html += '<div class="role-panel"><h3>' + (zh ? '全部照片报告' : 'All Photo Reports') + '</h3><div class="dashboard-filters">' +
+      '<label>' + (zh ? '日期' : 'Date') + '<input type="date" id="dashDate" /></label>' +
+      '<label>Operator<input id="dashOperator" list="dashboardOperatorList" /></label><datalist id="dashboardOperatorList">' + operatorOptions + '</datalist>' +
+      '<label>IFS Order No.<input id="dashIfs" /></label>' +
+      '<label>Pos No.<input id="dashPos" /></label>' +
+      '<button class="btn btn-sm btn-primary" id="dashQuery">' + (zh ? '查询' : 'Search') + '</button>' +
+      '<button class="btn btn-sm btn-ghost" id="dashReset">' + (zh ? '重置' : 'Reset') + '</button>' +
+      '</div><div id="dashboardResults" class="dashboard-results"></div></div>';
+    if (user.role === 'admin') {
       html += '<div class="role-panel"><h3>' + (zh ? '用户与角色管理' : 'Users & Roles') + '</h3>';
       this.localUsers.forEach(function(item) {
         html += '<div class="user-role-row"><div><strong>' + this._esc(item.displayName) + '</strong><small>' + item.username + '</small></div><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select></div>';
       }.bind(this));
-      html += '<div class="batch-actions"><button class="btn btn-primary" id="adminEnterCapture">' + (zh ? '进入拍照任务' : 'Enter Capture Mode') + '</button></div></div>';
+      html += '<div class="batch-actions"><button class="btn btn-primary" id="adminEnterCapture">' + (zh ? '进入拍照任务' : 'Enter Capture Mode') + '</button><button class="btn btn-outline" id="showAuditLog">' + (zh ? '查看审计日志' : 'Audit Log') + '</button></div></div>';
       html += '<div class="role-panel"><h3>30 ' + (zh ? '天数据保留策略' : 'Day Retention Policy') + '</h3><p class="role-note">' + (zh ? '报告、照片、PDF 和 ZIP 从生成之日起保留 30 个自然日，到期后服务器自动彻底删除，不提供恢复。' : 'Reports, photos, PDF and ZIP are kept for 30 calendar days, then permanently deleted by the server.') + '</p></div>';
     }
     html += '</div>';
     c.innerHTML = html;
+    this._dashboardReports = [];
+    document.getElementById('dashQuery').onclick = () => this._queryDashboardReports();
+    document.getElementById('dashReset').onclick = () => { document.getElementById('dashDate').value = ''; document.getElementById('dashOperator').value = ''; document.getElementById('dashIfs').value = ''; document.getElementById('dashPos').value = ''; this._queryDashboardReports(); };
     c.querySelectorAll('[data-user-role]').forEach(function(select) {
       select.onchange = function() {
         var target = this.localUsers.find(function(item) { return item.username === select.dataset.userRole; });
@@ -658,6 +659,112 @@ class SamsonApp {
       }.bind(this);
     }.bind(this));
     if (document.getElementById('adminEnterCapture')) document.getElementById('adminEnterCapture').onclick = function() { this._roleDashboard = false; this.currentStep = 1; this.render(); }.bind(this);
+    if (document.getElementById('showAuditLog')) document.getElementById('showAuditLog').onclick = () => this._showAuditLog();
+    this._queryDashboardReports();
+  }
+
+  _dashboardFilters() {
+    return {
+      date: document.getElementById('dashDate').value.trim(),
+      operator: document.getElementById('dashOperator').value.trim(),
+      ifs: document.getElementById('dashIfs').value.trim(),
+      pos: document.getElementById('dashPos').value.trim()
+    };
+  }
+
+  async _queryDashboardReports() {
+    var results = document.getElementById('dashboardResults');
+    if (!results) return;
+    results.innerHTML = '<p class="dashboard-loading">Loading…</p>';
+    var filters = this._dashboardFilters();
+    var query = new URLSearchParams(filters);
+    query.set('actor', this.currentUser.displayName);
+    query.set('role', this.currentUser.role);
+    try {
+      var response = await fetch('api/dashboard/reports?' + query.toString());
+      if (!response.ok) throw new Error('Failed to load reports');
+      var reports = await response.json();
+      this._dashboardReports = reports;
+      this._renderDashboardResults(reports);
+    } catch (err) {
+      results.innerHTML = '<p style="color:red;">' + err.message + '</p>';
+    }
+  }
+
+  _renderDashboardResults(reports) {
+    var results = document.getElementById('dashboardResults');
+    if (!results) return;
+    var zh = I18n.lang === 'zh';
+    if (!reports.length) { results.innerHTML = '<p class="batch-empty">' + (zh ? '没有匹配的报告' : 'No matching reports') + '</p>'; return; }
+    var html = '<div class="dashboard-report-list">';
+    reports.forEach(function(report, index) {
+      var date = String(report.createdAt || '').slice(0, 10);
+      html += '<div class="dashboard-report-row"><div class="dashboard-report-main"><strong>' + this._esc(report.contractNo || '-') + ' · Pos' + this._esc(report.positionNo || '-') + '</strong><small>' + this._esc(report.tagNo || '-') + ' · ' + this._esc(report.operator || '-') + ' · ' + date + '</small></div><div class="completed-report-actions">' +
+        '<button class="btn btn-sm btn-outline" data-dashboard-view="' + index + '">' + (zh ? '查看' : 'View') + '</button>' +
+        '<button class="btn btn-sm btn-outline" data-dashboard-pdf="' + index + '">PDF</button>' +
+        '<button class="btn btn-sm btn-outline" data-dashboard-zip="' + index + '">ZIP</button></div></div>';
+    }.bind(this));
+    html += '</div>';
+    results.innerHTML = html;
+    results.querySelectorAll('[data-dashboard-view]').forEach(function(button) { button.onclick = function() { this._viewDashboardReport(this._dashboardReports[Number(button.dataset.dashboardView)]); }.bind(this); }.bind(this));
+    results.querySelectorAll('[data-dashboard-pdf]').forEach(function(button) { button.onclick = function() { this._downloadDashboardReport(this._dashboardReports[Number(button.dataset.dashboardPdf)], 'report'); }.bind(this); }.bind(this));
+    results.querySelectorAll('[data-dashboard-zip]').forEach(function(button) { button.onclick = function() { this._downloadDashboardReport(this._dashboardReports[Number(button.dataset.dashboardZip)], 'zip'); }.bind(this); }.bind(this));
+  }
+
+  _viewDashboardReport(report) {
+    if (!report) return;
+    this._logDashboardAction('report_viewed', report);
+    window.open(report.reportUrl, '_blank');
+  }
+
+  _downloadDashboardReport(report, type) {
+    if (!report) return;
+    this._logDashboardAction(type === 'report' ? 'report_downloaded_pdf' : 'report_downloaded_zip', report);
+    var link = document.createElement('a');
+    link.href = type === 'report' ? report.reportUrl : report.downloadUrl;
+    link.download = type === 'report' ? report.id + '.pdf' : report.id + '.zip';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  async _logDashboardAction(action, report, extra) {
+    try {
+      await fetch('api/dashboard/audit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: action,
+          actor: this.currentUser.displayName,
+          role: this.currentUser.role,
+          reportId: report && report.id,
+          contractNo: report && report.contractNo,
+          positionNo: report && report.positionNo,
+          tagNo: report && report.tagNo,
+          operator: report && report.operator,
+          filters: this._dashboardFilters(),
+          details: extra || {}
+        })
+      });
+    } catch (e) {}
+  }
+
+  async _showAuditLog() {
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.id = 'auditLogModal';
+    modal.innerHTML = '<div class="modal-content completed-reports-modal"><h3>' + (I18n.lang === 'zh' ? '审计日志' : 'Audit Log') + '</h3><div id="auditLogList" class="dashboard-results"><p>Loading…</p></div><div class="appearance-prompt-actions"><button class="btn btn-outline" id="closeAuditLog">' + (I18n.lang === 'zh' ? '关闭' : 'Close') + '</button></div></div>';
+    document.body.appendChild(modal);
+    document.getElementById('closeAuditLog').onclick = function() { modal.remove(); };
+    try {
+      var response = await fetch('api/dashboard/audit?limit=100');
+      var logs = await response.json();
+      var list = document.getElementById('auditLogList');
+      list.innerHTML = logs.length ? logs.map(function(item) {
+        return '<div class="audit-log-row"><strong>' + this._esc(item.actor || '-') + '</strong><span>' + this._esc(item.action || '-') + '</span><small>' + this._esc(item.timestamp || '') + '</small></div>';
+      }.bind(this)).join('') : '<p class="batch-empty">No logs</p>';
+    } catch (e) {
+      document.getElementById('auditLogList').innerHTML = '<p style="color:red;">' + e.message + '</p>';
+    }
   }
 
   // ── Lang helpers ───────────────────────────
@@ -2371,7 +2478,10 @@ class SamsonApp {
         valveType: this.data.valveType,
         recorder: this.data.recorder,
         accessories: this.data.accessories,
-        appearance: this.data.appearance
+        appearance: this.data.appearance,
+        operatorId: this.currentUser.username,
+        operatorName: this.currentUser.displayName,
+        sessionId: this.batch ? this.batch.id : ''
       };
       var result = await SamsonStorage.saveReport(meta, images, reportName);
       var archive = {

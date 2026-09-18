@@ -14,6 +14,7 @@ const REPORTS_DIR = path.join(__dirname, 'reports');
 const SESSIONS_DIR = path.join(__dirname, 'sessions');
 const BACKUPS_DIR = path.join(__dirname, 'backups');
 const CACHE_DIR = path.join(__dirname, 'cache');
+const AUDIT_LOG_FILE = path.join(BACKUPS_DIR, 'audit.jsonl');
 [UPLOADS_DIR, REPORTS_DIR, SESSIONS_DIR, BACKUPS_DIR, CACHE_DIR].forEach(d => { if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true }); });
 
 function safeName(value, fallback) {
@@ -47,6 +48,12 @@ function createZip(sourceDir, zipPath, rootName) {
     archive.directory(sourceDir, rootName);
     archive.finalize();
   });
+}
+
+function appendAudit(entry) {
+  try {
+    fs.appendFileSync(AUDIT_LOG_FILE, JSON.stringify(Object.assign({ timestamp: new Date().toISOString() }, entry)) + '\n');
+  } catch (e) {}
 }
 
 // Middleware
@@ -117,6 +124,62 @@ app.get('/api/reports/:id/files/:filename', (req, res) => {
   const filePath = path.join(reportDirectory(reportId), filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   res.download(filePath, filename);
+});
+
+app.get('/api/dashboard/reports', (req, res) => {
+  const date = String(req.query.date || '').trim();
+  const operator = String(req.query.operator || '').trim().toLowerCase();
+  const ifs = String(req.query.ifs || '').trim().toLowerCase();
+  const pos = String(req.query.pos || '').replace(/^Pos\s*/i, '').toLowerCase();
+  const reports = [];
+  if (fs.existsSync(REPORTS_DIR)) {
+    fs.readdirSync(REPORTS_DIR, { withFileTypes: true }).filter(function(entry) { return entry.isDirectory(); }).forEach(function(dir) {
+      try {
+        var file = path.join(REPORTS_DIR, dir.name, 'report.json');
+        if (!fs.existsSync(file)) return;
+        var data = JSON.parse(fs.readFileSync(file, 'utf8'));
+        var meta = data.meta || {};
+        var report = {
+          id: data.id || dir.name,
+          createdAt: data.createdAt || '',
+          contractNo: meta.contractNo || meta.ifsNo || '',
+          ifsNo: meta.ifsNo || meta.contractNo || '',
+          positionNo: meta.positionNo || '',
+          tagNo: meta.tagNo || '',
+          serialNo: meta.serialNo || '',
+          valveType: meta.valveType || '',
+          operator: meta.operatorName || meta.operatorId || meta.recorder || '',
+          operatorId: meta.operatorId || meta.operatorName || meta.recorder || '',
+          sessionId: meta.sessionId || '',
+          reportUrl: `api/reports/${encodeURIComponent(dir.name)}/files/${encodeURIComponent(dir.name + '.pdf')}`,
+          downloadUrl: `api/reports/${encodeURIComponent(dir.name)}/download`
+        };
+        if (date && String(report.createdAt).slice(0, 10) !== date) return;
+        if (operator && String(report.operator).toLowerCase().indexOf(operator) < 0) return;
+        if (ifs && String(report.contractNo).toLowerCase().indexOf(ifs) < 0 && String(report.ifsNo).toLowerCase().indexOf(ifs) < 0) return;
+        if (pos && String(report.positionNo).replace(/^Pos\s*/i, '').toLowerCase().indexOf(pos) < 0) return;
+        reports.push(report);
+      } catch (e) {}
+    });
+  }
+  reports.sort(function(a, b) { return String(b.createdAt).localeCompare(String(a.createdAt)); });
+  appendAudit({ action: 'dashboard_viewed', actor: req.query.actor || '', role: req.query.role || '', filters: { date: date, operator: operator, ifs: ifs, pos: pos } });
+  res.json(reports);
+});
+
+app.post('/api/dashboard/audit', (req, res) => {
+  var entry = req.body || {};
+  appendAudit(entry);
+  res.json({ ok: true });
+});
+
+app.get('/api/dashboard/audit', (req, res) => {
+  var limit = Math.min(Number(req.query.limit) || 100, 500);
+  if (!fs.existsSync(AUDIT_LOG_FILE)) return res.json([]);
+  var lines = fs.readFileSync(AUDIT_LOG_FILE, 'utf8').trim().split('\n').filter(Boolean).map(function(line) {
+    try { return JSON.parse(line); } catch (e) { return null; }
+  }).filter(Boolean);
+  res.json(lines.slice(-limit).reverse());
 });
 
 app.post('/api/sessions/package', async (req, res) => {

@@ -7,6 +7,7 @@ reports/
 sessions/
 backups/
 cache/
+audit.jsonl
 
 # OS / editor
 .DS_Store
