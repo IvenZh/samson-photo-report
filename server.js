@@ -35,6 +35,16 @@ const DEFAULT_USERS = [
   { username: 'Zhao Feng', displayName: 'Zhao Feng', role: 'admin', enabled: true, passwordHash: DEFAULT_PASSWORD_HASH }
 ];
 
+const USERNAME_MIGRATIONS = {
+  liuyang: 'Liu Yang',
+  liuzhixin: 'Liu Zhixin',
+  yanbo: 'Yan Bo',
+  zhanglin: 'Zhang Lin',
+  zhonghaitao: 'Zhong Haitao',
+  sunqiang: 'Sun Qiang',
+  zhaofeng: 'Zhao Feng'
+};
+
 function normalizedIdentity(value) {
   return String(value || '').trim().normalize('NFKC').toLowerCase();
 }
@@ -57,7 +67,11 @@ function loadUsers() {
         var next = Object.assign({}, user, { sessionVersion: Number(user.sessionVersion || 0) });
         var displayName = String(next.displayName || '').trim();
         var compactDisplayName = displayName.replace(/\s+/g, '').toLowerCase();
-        if (displayName && normalizedIdentity(next.username) === compactDisplayName && next.username !== displayName) {
+        var knownName = USERNAME_MIGRATIONS[normalizedIdentity(next.username)];
+        if (knownName && next.username !== knownName) {
+          next.username = knownName;
+          changed = true;
+        } else if (displayName && normalizedIdentity(next.username) === compactDisplayName && next.username !== displayName) {
           next.username = displayName;
           changed = true;
         }
