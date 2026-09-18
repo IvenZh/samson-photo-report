@@ -140,14 +140,15 @@ class SamsonApp {
     var modal = document.createElement('div');
     modal.className = 'modal';
     modal.id = 'rolePickerModal';
-    var html = '<div class="modal-content role-picker-modal"><h3>登录</h3>';
-    html += '<div class="wizard-block"><label>用户 / 角色</label><select id="roleUserSelect">';
+    var zh = I18n.lang === 'zh';
+    var html = '<div class="modal-content role-picker-modal"><h3>' + (zh ? '登录' : 'Login') + '</h3>';
+    html += '<div class="wizard-block"><label>' + (zh ? '用户 / 角色' : 'User / Role') + '</label><select id="roleUserSelect">';
     this.localUsers.forEach(function(user) {
       html += '<option value="' + user.username + '"' + (user.username === this.currentUser.username ? ' selected' : '') + '>' + this._esc(user.displayName) + ' · ' + this._roleLabel(user.role) + '</option>';
     }.bind(this));
-    html += '</select></div><div class="wizard-block"><label>密码</label><input id="rolePassword" type="password" autocomplete="current-password" /></div><div id="roleLoginError" class="role-login-error"></div>';
-    html += '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="roleLoginBtn">登录</button>';
-    if (this._authenticated) html += '<button class="btn btn-ghost" id="closeRolePicker">取消</button>';
+    html += '</select></div><div class="wizard-block"><label>' + (zh ? '密码' : 'Password') + '</label><input id="rolePassword" type="password" autocomplete="current-password" /></div><div id="roleLoginError" class="role-login-error"></div>';
+    html += '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="roleLoginBtn">' + (zh ? '登录' : 'Login') + '</button>';
+    if (this._authenticated) html += '<button class="btn btn-ghost" id="closeRolePicker">' + (zh ? '取消' : 'Cancel') + '</button>';
     html += '</div></div>';
     modal.innerHTML = html;
     document.body.appendChild(modal);
@@ -156,7 +157,7 @@ class SamsonApp {
       var password = document.getElementById('rolePassword').value;
       var ok = await this._verifyLocalPassword(password);
       if (!ok) {
-        document.getElementById('roleLoginError').textContent = '密码错误';
+        document.getElementById('roleLoginError').textContent = zh ? '密码错误' : 'Incorrect password';
         return;
       }
       modal.remove();
@@ -386,7 +387,7 @@ class SamsonApp {
     var pos = this._normalizePosNumber(d.positionNo);
     var identity = d.tagNo || d.serialNo;
     if (!ifs || !pos || !identity) {
-      this._showToast('IFS / Pos and Tag or Serial required', 'error');
+      this._showToast(I18n.lang === 'zh' ? '请填写 IFS、Pos 以及 Tag 或 Serial' : 'IFS / Pos and Tag or Serial required', 'error');
       return null;
     }
     if (this.activeValveId) {
@@ -410,7 +411,7 @@ class SamsonApp {
     }
     var id = ifs + '::' + pos + '::' + identity;
     if (this.batch.valves.some(function(v) { return v.id === id; })) {
-      this._showToast('Valve already exists: ' + id, 'error');
+      this._showToast((I18n.lang === 'zh' ? '阀门已存在：' : 'Valve already exists: ') + id, 'error');
       return null;
     }
     var previous = this._latestValve();
@@ -687,7 +688,7 @@ class SamsonApp {
       this._dashboardReports = reports;
       this._renderDashboardResults(reports);
     } catch (err) {
-      results.innerHTML = '<p style="color:red;">' + err.message + '</p>';
+      results.innerHTML = '<p style="color:red;">' + (I18n.lang === 'zh' ? '加载报告失败：' : 'Failed to load reports: ') + err.message + '</p>';
     }
   }
 
@@ -829,11 +830,17 @@ class SamsonApp {
   // ── Base events (lang toggle, recover, steps indicator taps) ──
   _bindBaseEvents() {
     document.getElementById('btnRefreshCurrent').onclick = () => this._confirmDanger(
-      '刷新当前阀门', '将清空当前阀门的全部照片和拍照范围，并回到基础信息页。此操作不可撤销。', () => this._refreshCurrentValve());
+      I18n.lang === 'zh' ? '刷新当前阀门' : 'Refresh Current Valve',
+      I18n.lang === 'zh' ? '将清空当前阀门的全部照片和拍照范围，并回到基础信息页。此操作不可撤销。' : 'This will clear all photos and photo scope for the current valve and return to Basic Info. This cannot be undone.',
+      () => this._refreshCurrentValve());
     document.getElementById('btnResetSession').onclick = () => this._confirmDanger(
-      '重置 Session', '将清空本轮 Session 的全部阀门、照片、报告和进度，并创建新的 Session。此操作不可撤销。', () => this._resetSession());
+      I18n.lang === 'zh' ? '重置 Session' : 'Reset Session',
+      I18n.lang === 'zh' ? '将清空本轮 Session 的全部阀门、照片、报告和进度，并创建新的 Session。此操作不可撤销。' : 'This will clear all valves, photos, reports and progress in this Session and create a new Session. This cannot be undone.',
+      () => this._resetSession());
     document.getElementById('btnCloseSession').onclick = () => this._confirmDanger(
-      '关闭 Session', '确认完成本轮拍照任务？关闭后将显示 Session ID、阀门清单和下载入口。此操作代表本轮任务结束。', () => this._closeSession());
+      I18n.lang === 'zh' ? '关闭 Session' : 'Close Session',
+      I18n.lang === 'zh' ? '确认完成本轮拍照任务？关闭后将显示 Session ID、阀门清单和下载入口。此操作代表本轮任务结束。' : 'Finish this capture session? After closing, the Session ID, valve list and download links will be shown.',
+      () => this._closeSession());
     document.getElementById('btnRoleSwitch').onclick = () => this._showRolePicker();
     var completedBtn = document.getElementById('btnCompletedReports');
     if (completedBtn) completedBtn.onclick = () => this._showCompletedReports();
@@ -873,7 +880,7 @@ class SamsonApp {
   _confirmDanger(title, message, action) {
     var modal = document.createElement('div');
     modal.className = 'modal';
-    modal.innerHTML = '<div class="modal-content appearance-scope-prompt"><h3>' + this._esc(title) + '</h3><p>' + this._esc(message) + '</p><div class="appearance-prompt-actions"><button class="btn btn-primary" id="dangerConfirm">确认执行</button><button class="btn btn-ghost" id="dangerCancel">取消</button></div></div>';
+    modal.innerHTML = '<div class="modal-content appearance-scope-prompt"><h3>' + this._esc(title) + '</h3><p>' + this._esc(message) + '</p><div class="appearance-prompt-actions"><button class="btn btn-primary" id="dangerConfirm">' + (I18n.lang === 'zh' ? '确认执行' : 'Confirm') + '</button><button class="btn btn-ghost" id="dangerCancel">' + (I18n.lang === 'zh' ? '取消' : 'Cancel') + '</button></div></div>';
     document.body.appendChild(modal);
     document.getElementById('dangerCancel').onclick = function() { modal.remove(); };
     document.getElementById('dangerConfirm').onclick = function() { modal.remove(); action(); };
@@ -928,7 +935,7 @@ class SamsonApp {
     var modal = document.createElement('div');
     modal.className = 'modal';
     var html = '<div class="modal-content completed-reports-modal"><h3>' + (zh ? 'Session 已关闭' : 'Session Closed') + '</h3><p><strong>Session ID:</strong> ' + this._esc(this.batch.id) + '</p>';
-    html += '<p class="role-note">Reports and photos are kept on the server for 30 calendar days, then permanently deleted. Please download promptly.</p>';
+    html += '<p class="role-note">' + (zh ? '报告和照片将在服务器上保存 30 个自然日，到期后永久删除。请及时下载。' : 'Reports and photos are kept on the server for 30 calendar days, then permanently deleted. Please download promptly.') + '</p>';
     if (this.batch.valves.length) {
       this.batch.valves.forEach(function(valve) {
         html += '<div class="completed-report-row"><div><strong>Pos' + this._normalizePosNumber(valve.positionNo) + '</strong><small>' + this._esc(valve.tagNo || valve.serialNo) + '</small></div><div class="completed-report-actions">';
