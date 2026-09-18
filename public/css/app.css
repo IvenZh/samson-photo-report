@@ -691,6 +691,11 @@ input, select, button { -webkit-appearance: none; appearance: none; }
 .admin-alert.danger strong { color: var(--red); }
 .admin-alert.info { border-color: #A7C7E7; background: #EFF6FC; }
 .admin-alert.info strong { color: var(--blue); }
+.admin-tabs { display: flex; gap: 6px; margin-bottom: 12px; overflow-x: auto; padding-bottom: 2px; }
+.admin-tab { border: 1px solid var(--gray-200); background: #fff; color: var(--gray-600); padding: 7px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.admin-tab.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+.admin-section { display: none; }
+.admin-section.active { display: block; }
 .admin-recent-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
 .admin-table-list { display: flex; flex-direction: column; }
 .admin-table-row { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--gray-100); }

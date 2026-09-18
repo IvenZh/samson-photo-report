@@ -636,45 +636,71 @@ class SamsonApp {
     var user = this.currentUser;
     var operatorOptions = this.localUsers.map(function(item) { return '<option value="' + this._esc(item.displayName) + '">' + this._esc(item.displayName) + '</option>'; }.bind(this)).join('');
     var html = '<div class="batch-page">';
-    html += '<div class="batch-summary"><div><strong>' + this._esc(user.displayName) + '</strong><small>' + this._roleLabel(user.role) + ' · ' + (zh ? '服务器报告看板' : 'Server Report Dashboard') + '</small></div></div>';
-    if (user.role === 'admin') html += '<div id="adminSummary" class="admin-summary"></div>';
-    html += '<div class="role-panel"><h3>' + (zh ? '全部照片报告' : 'All Photo Reports') + '</h3><div class="dashboard-filters">' +
+    html += '<div class="batch-summary"><div><strong>' + this._esc(user.displayName) + '</strong><small>' + this._roleLabel(user.role) + ' · ' + (zh ? '后台管理' : 'Backend') + '</small></div></div>';
+    if (user.role === 'admin') {
+      html += '<div class="admin-tabs"><button class="admin-tab active" data-admin-tab="status">Status</button><button class="admin-tab" data-admin-tab="reports">Reports</button><button class="admin-tab" data-admin-tab="users">Users</button><button class="admin-tab" data-admin-tab="audit">Audit</button></div>';
+      html += '<div id="adminSectionStatus" class="admin-section active"><div id="adminSummary" class="admin-summary"></div></div>';
+      html += '<div id="adminSectionReports" class="admin-section">' + this._dashboardFilterHtml(operatorOptions) + '<div id="dashboardResults" class="dashboard-results"></div></div>';
+      html += '<div id="adminSectionUsers" class="admin-section">' + this._adminUsersHtml() + '</div>';
+      html += '<div id="adminSectionAudit" class="admin-section"><div class="role-panel"><h3>' + (zh ? '审计日志' : 'Audit Log') + '</h3><p class="role-note">' + (zh ? '点击下方按钮打开审计日志详情。' : 'Click below to open the audit log.') + '</p><button class="btn btn-primary" id="openAuditPanel">' + (zh ? '打开审计日志' : 'Open Audit Log') + '</button></div></div>';
+    } else {
+      html += this._dashboardFilterHtml(operatorOptions);
+      html += '<div id="dashboardResults" class="dashboard-results"></div>';
+    }
+    html += '</div>';
+    c.innerHTML = html;
+    this._dashboardReports = [];
+    if (user.role === 'admin') {
+      c.querySelectorAll('[data-admin-tab]').forEach(function(button) {
+        button.onclick = function() { this._showAdminTab(button.dataset.adminTab); }.bind(this);
+      }.bind(this));
+      if (document.getElementById('openAuditPanel')) document.getElementById('openAuditPanel').onclick = () => this._showAuditLog();
+      c.querySelectorAll('[data-user-role]').forEach(function(select) {
+        select.onchange = function() {
+          var target = this.localUsers.find(function(item) { return item.username === select.dataset.userRole; });
+          if (target) { target.role = select.value; this._saveRoleDemoUsers(); this._renderRoleDashboard(document.getElementById('mainContent')); }
+        }.bind(this);
+      }.bind(this));
+      c.querySelectorAll('[data-user-enabled]').forEach(function(checkbox) {
+        checkbox.onchange = function() {
+          var target = this.localUsers.find(function(item) { return item.username === checkbox.dataset.userEnabled; });
+          if (target) { target.enabled = checkbox.checked; this._saveRoleDemoUsers(); }
+        }.bind(this);
+      }.bind(this));
+      this._loadAdminSummary();
+    } else {
+      document.getElementById('dashQuery').onclick = () => this._queryDashboardReports();
+      document.getElementById('dashReset').onclick = () => { document.getElementById('dashDate').value = ''; document.getElementById('dashOperator').value = ''; document.getElementById('dashIfs').value = ''; document.getElementById('dashPos').value = ''; this._queryDashboardReports(); };
+      this._queryDashboardReports();
+    }
+  }
+
+  _dashboardFilterHtml(operatorOptions) {
+    var zh = I18n.lang === 'zh';
+    return '<div class="role-panel"><h3>' + (zh ? '全部照片报告' : 'All Photo Reports') + '</h3><div class="dashboard-filters">' +
       '<label>' + (zh ? '日期' : 'Date') + '<input type="date" id="dashDate" /></label>' +
       '<label>Operator<input id="dashOperator" list="dashboardOperatorList" /></label><datalist id="dashboardOperatorList">' + operatorOptions + '</datalist>' +
       '<label>IFS Order No.<input id="dashIfs" /></label>' +
       '<label>Pos No.<input id="dashPos" /></label>' +
       '<button class="btn btn-sm btn-primary" id="dashQuery">' + (zh ? '查询' : 'Search') + '</button>' +
       '<button class="btn btn-sm btn-ghost" id="dashReset">' + (zh ? '重置' : 'Reset') + '</button>' +
-      '</div><div id="dashboardResults" class="dashboard-results"></div></div>';
-    if (user.role === 'admin') {
-      html += '<div class="role-panel"><h3>' + (zh ? '用户与角色管理' : 'Users & Roles') + '</h3>';
-      this.localUsers.forEach(function(item) {
-        html += '<div class="user-role-row"><div><strong>' + this._esc(item.displayName) + '</strong><small>' + item.username + '</small></div><div class="user-role-controls"><label><input type="checkbox" data-user-enabled="' + item.username + '"' + (item.enabled !== false ? ' checked' : '') + ' /> ' + (zh ? '启用' : 'Enabled') + '</label><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select></div></div>';
-      }.bind(this));
-      html += '<div class="batch-actions"><button class="btn btn-primary" id="adminEnterCapture">' + (zh ? '进入拍照任务' : 'Enter Capture Mode') + '</button><button class="btn btn-outline" id="showAuditLog">' + (zh ? '查看审计日志' : 'Audit Log') + '</button></div></div>';
-      html += '<div class="role-panel"><h3>30 ' + (zh ? '天数据保留策略' : 'Day Retention Policy') + '</h3><p class="role-note">' + (zh ? '报告、照片、PDF 和 ZIP 从生成之日起保留 30 个自然日，到期后服务器自动彻底删除，不提供恢复。' : 'Reports, photos, PDF and ZIP are kept for 30 calendar days, then permanently deleted by the server.') + '</p></div>';
-    }
-    html += '</div>';
-    c.innerHTML = html;
-    this._dashboardReports = [];
-    document.getElementById('dashQuery').onclick = () => this._queryDashboardReports();
-    document.getElementById('dashReset').onclick = () => { document.getElementById('dashDate').value = ''; document.getElementById('dashOperator').value = ''; document.getElementById('dashIfs').value = ''; document.getElementById('dashPos').value = ''; this._queryDashboardReports(); };
-    c.querySelectorAll('[data-user-role]').forEach(function(select) {
-      select.onchange = function() {
-        var target = this.localUsers.find(function(item) { return item.username === select.dataset.userRole; });
-        if (target) { target.role = select.value; this._saveRoleDemoUsers(); this.render(); }
-      }.bind(this);
+      '</div>';
+  }
+
+  _adminUsersHtml() {
+    var zh = I18n.lang === 'zh';
+    var html = '<div class="role-panel"><h3>' + (zh ? '用户与角色管理' : 'Users & Roles') + '</h3>';
+    this.localUsers.forEach(function(item) {
+      html += '<div class="user-role-row"><div><strong>' + this._esc(item.displayName) + '</strong><small>' + item.username + '</small></div><div class="user-role-controls"><label><input type="checkbox" data-user-enabled="' + item.username + '"' + (item.enabled !== false ? ' checked' : '') + ' /> ' + (zh ? '启用' : 'Enabled') + '</label><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select></div></div>';
     }.bind(this));
-    if (document.getElementById('adminEnterCapture')) document.getElementById('adminEnterCapture').onclick = function() { this._roleDashboard = false; this.currentStep = 1; this.render(); }.bind(this);
-    if (document.getElementById('showAuditLog')) document.getElementById('showAuditLog').onclick = () => this._showAuditLog();
-    c.querySelectorAll('[data-user-enabled]').forEach(function(checkbox) {
-      checkbox.onchange = function() {
-        var target = this.localUsers.find(function(item) { return item.username === checkbox.dataset.userEnabled; });
-        if (target) { target.enabled = checkbox.checked; this._saveRoleDemoUsers(); this.render(); }
-      }.bind(this);
-    }.bind(this));
-    this._queryDashboardReports();
-    if (user.role === 'admin') this._loadAdminSummary();
+    html += '<div class="role-panel"><h3>30 ' + (zh ? '天数据保留策略' : 'Day Retention Policy') + '</h3><p class="role-note">' + (zh ? '报告、照片、PDF 和 ZIP 从生成之日起保留 30 个自然日，到期后服务器自动彻底删除，不提供恢复。' : 'Reports, photos, PDF and ZIP are kept for 30 calendar days, then permanently deleted by the server.') + '</p></div></div>';
+    return html;
+  }
+
+  _showAdminTab(section) {
+    document.querySelectorAll('[data-admin-tab]').forEach(function(button) { button.classList.toggle('active', button.dataset.adminTab === section); });
+    document.querySelectorAll('.admin-section').forEach(function(item) { item.classList.toggle('active', item.id === 'adminSection' + section.charAt(0).toUpperCase() + section.slice(1)); });
+    if (section === 'reports') this._queryDashboardReports();
   }
 
   _dashboardFilters() {
