@@ -952,7 +952,17 @@ class SamsonApp {
     html += '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="closeSessionDialog">' + (zh ? '关闭' : 'Close') + '</button></div></div>';
     modal.innerHTML = html;
     document.body.appendChild(modal);
-    document.getElementById('closeSessionDialog').onclick = function() { modal.remove(); };
+    document.getElementById('closeSessionDialog').onclick = function() {
+      modal.remove();
+      this._authenticated = false;
+      this.activeValveId = '';
+      this.batch.activeValveId = '';
+      this._saveBatch();
+      this.currentStep = 1;
+      this._roleDashboard = false;
+      this.render();
+      this._showRolePicker();
+    }.bind(this);
   }
 
   // ── Auto-save ──────────────────────────────
