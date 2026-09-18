@@ -62,20 +62,20 @@ class SamsonApp {
 
   _loadRoleDemoUsers() {
     var defaults = [
-      { username: 'liuyang', displayName: 'Liu Yang', role: 'operator', enabled: true },
-      { username: 'liuzhixin', displayName: 'Liu Zhixin', role: 'operator', enabled: true },
-      { username: 'yanbo', displayName: 'Yan Bo', role: 'operator', enabled: true },
-      { username: 'zhanglin', displayName: 'Zhang Lin', role: 'operator', enabled: true },
-      { username: 'zhonghaitao', displayName: 'Zhong Haitao', role: 'operator', enabled: true },
-      { username: 'sunqiang', displayName: 'Sun Qiang', role: 'supervisor', enabled: true },
-      { username: 'zhaofeng', displayName: 'Zhao Feng', role: 'admin', enabled: true }
+      { username: 'liuyang', displayName: 'Liu Yang', role: 'operator', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' },
+      { username: 'liuzhixin', displayName: 'Liu Zhixin', role: 'operator', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' },
+      { username: 'yanbo', displayName: 'Yan Bo', role: 'operator', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' },
+      { username: 'zhanglin', displayName: 'Zhang Lin', role: 'operator', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' },
+      { username: 'zhonghaitao', displayName: 'Zhong Haitao', role: 'operator', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' },
+      { username: 'sunqiang', displayName: 'Sun Qiang', role: 'supervisor', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' },
+      { username: 'zhaofeng', displayName: 'Zhao Feng', role: 'admin', enabled: true, passwordHash: 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501' }
     ];
     try {
       var saved = JSON.parse(localStorage.getItem('samson_role_demo_users') || 'null');
       if (!Array.isArray(saved) || !saved.length) return defaults;
       return defaults.map(function(user) {
         var match = saved.find(function(item) { return item.username === user.username; });
-        return match ? Object.assign({}, user, { role: match.role || user.role, enabled: typeof match.enabled === 'boolean' ? match.enabled : true }) : user;
+        return match ? Object.assign({}, user, { role: match.role || user.role, enabled: typeof match.enabled === 'boolean' ? match.enabled : true, passwordHash: match.passwordHash || user.passwordHash }) : user;
       });
     } catch (e) { return defaults; }
   }
@@ -155,7 +155,7 @@ class SamsonApp {
     document.getElementById('roleLoginBtn').onclick = async function() {
       var username = document.getElementById('roleUserSelect').value;
       var password = document.getElementById('rolePassword').value;
-      var ok = await this._verifyLocalPassword(password);
+      var ok = await this._verifyLocalPassword(username, password);
       if (!ok) {
         document.getElementById('roleLoginError').textContent = zh ? '密码错误' : 'Incorrect password';
         return;
@@ -171,15 +171,22 @@ class SamsonApp {
     if (document.getElementById('closeRolePicker')) document.getElementById('closeRolePicker').onclick = function() { modal.remove(); };
   }
 
-  async _verifyLocalPassword(password) {
+  async _verifyLocalPassword(username, password) {
     try {
       var bytes = new TextEncoder().encode(String(password));
       var hash = await crypto.subtle.digest('SHA-256', bytes);
       var hex = Array.from(new Uint8Array(hash)).map(function(value) { return value.toString(16).padStart(2, '0'); }).join('');
-      return hex === 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501';
+      var user = this.localUsers.find(function(item) { return item.username === username; });
+      return hex === (user ? (user.passwordHash || 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501') : 'b3b130b344c28e52c7bd5347314547502cb39fec8ea539a78087539c236c6501');
     } catch (e) {
       return false;
     }
+  }
+
+  async _hashLocalPassword(password) {
+    var bytes = new TextEncoder().encode(String(password));
+    var hash = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(hash)).map(function(value) { return value.toString(16).padStart(2, '0'); }).join('');
   }
 
   _newSession() {
@@ -655,6 +662,7 @@ class SamsonApp {
         button.onclick = function() { this._showAdminTab(button.dataset.adminTab); }.bind(this);
       }.bind(this));
       if (document.getElementById('openAuditPanel')) document.getElementById('openAuditPanel').onclick = () => this._showAuditLog();
+      if (document.getElementById('addUserBtn')) document.getElementById('addUserBtn').onclick = () => this._showAddUserModal();
       c.querySelectorAll('[data-user-role]').forEach(function(select) {
         select.onchange = function() {
           var target = this.localUsers.find(function(item) { return item.username === select.dataset.userRole; });
@@ -666,6 +674,9 @@ class SamsonApp {
           var target = this.localUsers.find(function(item) { return item.username === checkbox.dataset.userEnabled; });
           if (target) { target.enabled = checkbox.checked; this._saveRoleDemoUsers(); }
         }.bind(this);
+      }.bind(this));
+      c.querySelectorAll('[data-delete-user]').forEach(function(button) {
+        button.onclick = function() { this._deleteUser(button.dataset.deleteUser); }.bind(this);
       }.bind(this));
       this._loadAdminSummary();
     } else {
@@ -689,12 +700,48 @@ class SamsonApp {
 
   _adminUsersHtml() {
     var zh = I18n.lang === 'zh';
-    var html = '<div class="role-panel"><h3>' + (zh ? '用户与角色管理' : 'Users & Roles') + '</h3>';
+    var html = '<div class="role-panel"><div class="user-toolbar"><h3>' + (zh ? '用户与角色管理' : 'Users & Roles') + '</h3><button class="btn btn-sm btn-primary" id="addUserBtn">+ ' + (zh ? '增加账户' : 'Add User') + '</button></div>';
     this.localUsers.forEach(function(item) {
-      html += '<div class="user-role-row"><div><strong>' + this._esc(item.displayName) + '</strong><small>' + item.username + '</small></div><div class="user-role-controls"><label><input type="checkbox" data-user-enabled="' + item.username + '"' + (item.enabled !== false ? ' checked' : '') + ' /> ' + (zh ? '启用' : 'Enabled') + '</label><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select></div></div>';
+      html += '<div class="user-role-row"><div><strong>' + this._esc(item.displayName) + '</strong><small>' + item.username + '</small></div><div class="user-role-controls"><label><input type="checkbox" data-user-enabled="' + item.username + '"' + (item.enabled !== false ? ' checked' : '') + ' /> ' + (zh ? '启用' : 'Enabled') + '</label><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select><button class="btn btn-sm btn-ghost" data-delete-user="' + item.username + '">✕</button></div></div>';
     }.bind(this));
     html += '<div class="role-panel"><h3>30 ' + (zh ? '天数据保留策略' : 'Day Retention Policy') + '</h3><p class="role-note">' + (zh ? '报告、照片、PDF 和 ZIP 从生成之日起保留 30 个自然日，到期后服务器自动彻底删除，不提供恢复。' : 'Reports, photos, PDF and ZIP are kept for 30 calendar days, then permanently deleted by the server.') + '</p></div></div>';
     return html;
+  }
+
+  _showAddUserModal() {
+    var zh = I18n.lang === 'zh';
+    var modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = '<div class="modal-content role-picker-modal"><h3>' + (zh ? '增加账户' : 'Add User') + '</h3>' +
+      '<div class="wizard-block"><label>Username</label><input id="newUsername" /></div>' +
+      '<div class="wizard-block"><label>' + (zh ? '显示名' : 'Display Name') + '</label><input id="newDisplayName" /></div>' +
+      '<div class="wizard-block"><label>' + (zh ? '密码' : 'Password') + '</label><input id="newPassword" type="password" /></div>' +
+      '<div class="wizard-block"><label>Role</label><select id="newRole"><option value="operator">Operator</option><option value="supervisor">Supervisor</option><option value="admin">Admin</option></select></div>' +
+      '<div class="appearance-prompt-actions"><button class="btn btn-primary" id="saveNewUser">' + (zh ? '保存' : 'Save') + '</button><button class="btn btn-ghost" id="cancelNewUser">' + (zh ? '取消' : 'Cancel') + '</button></div></div>';
+    document.body.appendChild(modal);
+    document.getElementById('cancelNewUser').onclick = function() { modal.remove(); };
+    document.getElementById('saveNewUser').onclick = async function() {
+      var username = document.getElementById('newUsername').value.trim();
+      var displayName = document.getElementById('newDisplayName').value.trim();
+      var password = document.getElementById('newPassword').value;
+      var role = document.getElementById('newRole').value;
+      if (!username || !displayName || !password) { this._showToast('Fields required', 'error'); return; }
+      if (this.localUsers.some(function(item) { return item.username === username; })) { this._showToast('Username exists', 'error'); return; }
+      var passwordHash = await this._hashLocalPassword(password);
+      this.localUsers.push({ username: username, displayName: displayName, role: role, enabled: true, passwordHash: passwordHash });
+      this._saveRoleDemoUsers();
+      modal.remove();
+      this._renderRoleDashboard(document.getElementById('mainContent'));
+    }.bind(this);
+  }
+
+  _deleteUser(username) {
+    if (username === this.currentUser.username) { this._showToast(I18n.lang === 'zh' ? '不能删除当前账户' : 'Cannot delete current account', 'error'); return; }
+    this._confirmDanger(I18n.lang === 'zh' ? '删除账户' : 'Delete User', I18n.lang === 'zh' ? '确认删除账户 ' + username + '？' : 'Delete user ' + username + '?', function() {
+      this.localUsers = this.localUsers.filter(function(item) { return item.username !== username; });
+      this._saveRoleDemoUsers();
+      this._renderRoleDashboard(document.getElementById('mainContent'));
+    }.bind(this));
   }
 
   _showAdminTab(section) {
@@ -763,6 +810,10 @@ class SamsonApp {
         '<div class="admin-card"><strong>' + summary.totalOperators + '</strong><span>' + (zh ? 'Operator 数' : 'Operators') + '</span></div>' +
         '<div class="admin-card"><strong>' + storage.diskUsagePercent + '%</strong><span>' + (zh ? '磁盘：已用 ' + this._formatBytes(storage.diskUsedBytes) + ' / 可用 ' + this._formatBytes(storage.diskFreeBytes) : 'Disk: ' + this._formatBytes(storage.diskUsedBytes) + ' used / ' + this._formatBytes(storage.diskFreeBytes) + ' free') + '</span></div>' +
         '<div class="admin-card"><strong>' + retention.expiring.length + '</strong><span>' + (zh ? '7天内到期' : 'Expiring Soon') + '</span></div></div>';
+      html += '<div class="admin-alert-grid">';
+      if (storage.diskUsagePercent >= 75) html += '<div class="admin-alert danger"><strong>' + storage.diskUsagePercent + '%</strong><span>' + (zh ? '服务器磁盘使用率较高' : 'Server disk usage is high') + '</span></div>';
+      html += '<div class="admin-alert info"><strong>' + this._formatBytes(storage.last24ArchiveBytes) + '</strong><span>' + (zh ? '最近 24 小时归档大小' : 'Archived in last 24h') + '</span></div>';
+      if (retention.expiring.length) html += '<div class="admin-alert warning"><strong>' + retention.expiring.length + '</strong><span>' + (zh ? '份报告将在 7 天内自动删除' : 'reports will be deleted within 7 days') + '</span></div></div>';
       html += '<div class="admin-chart-grid"><div class="admin-chart"><h4>' + (zh ? '报告趋势' : 'Report Trend') + '</h4><div class="admin-scroll-h"><div class="mini-bar-chart">' + trends.map(function(item) { return '<div class="mini-bar-item"><span>' + item.reports + '</span><i style="height:' + Math.round((item.reports / maxTrend) * 100) + '%"></i><small>' + item.date.slice(5) + '</small></div>'; }).join('') + '</div></div></div>';
       html += '<div class="admin-chart"><h4>' + (zh ? 'Operator 工作量' : 'Operator Workload') + '</h4><div class="admin-scroll-list"><div class="admin-hbar-list">' + workload.slice(0, 8).map(function(item) { return '<div class="admin-hbar-row"><strong>' + this._esc(item.operator) + '</strong><div class="admin-hbar-track"><i style="width:' + Math.round((item.reports / maxWorkload) * 100) + '%"></i></div><span>' + item.reports + '</span></div>'; }.bind(this)).join('') + '</div></div></div></div>';
       html += '<div class="admin-chart-grid"><div class="admin-chart"><h4>' + (zh ? '动作分布' : 'Action Distribution') + '</h4><div class="admin-scroll-list"><div class="mini-bar-chart horizontal">' + actions.slice(0, 8).map(function(item) { return '<div class="mini-bar-item"><span>' + item.count + '</span><i style="width:' + Math.round((item.count / maxAction) * 100) + '%"></i><small>' + this._esc(item.action) + '</small></div>'; }.bind(this)).join('') + '</div></div></div></div>';
@@ -770,10 +821,6 @@ class SamsonApp {
       if (filteredActivity.length) {
         html += '<div class="admin-summary-activity"><h4>' + (zh ? '最近活动' : 'Recent Activity') + '</h4><div class="admin-scroll-list">' + filteredActivity.slice(0, 30).map(function(item) { return '<div class="admin-activity-row"><strong>' + this._esc(item.actor || '-') + '</strong><span>' + this._esc(item.action || '-') + '</span></div>'; }.bind(this)).join('') + '</div></div>';
       }
-      html += '<div class="admin-alert-grid">';
-      if (retention.expiring.length) html += '<div class="admin-alert warning"><strong>' + retention.expiring.length + '</strong><span>' + (zh ? '份报告将在 7 天内自动删除' : 'reports will be deleted within 7 days') + '</span></div>';
-      if (storage.diskUsagePercent >= 75) html += '<div class="admin-alert danger"><strong>' + storage.diskUsagePercent + '%</strong><span>' + (zh ? '服务器磁盘使用率较高' : 'Server disk usage is high') + '</span></div>';
-      html += '<div class="admin-alert info"><strong>' + this._formatBytes(storage.last24ArchiveBytes) + '</strong><span>' + (zh ? '最近 24 小时归档大小' : 'Archived in last 24h') + '</span></div></div>';
       var filteredSessions = recentSessions.filter(withinDays);
       var filteredReports = recentReports.filter(withinDays);
       html += '<div class="admin-recent-grid">';
@@ -802,10 +849,12 @@ class SamsonApp {
     if (!results) return;
     var zh = I18n.lang === 'zh';
     if (!reports.length) { results.innerHTML = '<p class="batch-empty">' + (zh ? '没有匹配的报告' : 'No matching reports') + '</p>'; return; }
-    var html = '<div class="dashboard-report-list">';
+    var html = '';
+    if (this.currentUser.role === 'admin') html += '<div class="dashboard-bulk-actions"><button class="btn btn-sm btn-danger" id="deleteSelectedReports">' + (zh ? '删除选中报告' : 'Delete Selected') + '</button></div>';
+    html += '<div class="dashboard-report-list">';
     reports.forEach(function(report, index) {
       var date = String(report.createdAt || '').slice(0, 10);
-      html += '<div class="dashboard-report-row"><div class="dashboard-report-main"><strong>' + this._esc(report.contractNo || '-') + ' · Pos' + this._esc(report.positionNo || '-') + '</strong><small>' + this._esc(report.tagNo || '-') + ' · ' + this._esc(report.operator || '-') + ' · ' + date + '</small></div><div class="completed-report-actions">' +
+      html += '<div class="dashboard-report-row"><div class="dashboard-report-main">' + (this.currentUser.role === 'admin' ? '<label class="dashboard-check"><input type="checkbox" data-report-id="' + this._esc(report.id) + '" /></label>' : '') + '<strong>' + this._esc(report.contractNo || '-') + ' · Pos' + this._esc(report.positionNo || '-') + '</strong><small>' + this._esc(report.tagNo || '-') + ' · ' + this._esc(report.operator || '-') + ' · ' + date + '</small></div><div class="completed-report-actions">' +
         '<button class="btn btn-sm btn-outline" data-dashboard-view="' + index + '">' + (zh ? '查看' : 'View') + '</button>' +
         '<button class="btn btn-sm btn-outline" data-dashboard-pdf="' + index + '">PDF</button>' +
         '<button class="btn btn-sm btn-outline" data-dashboard-zip="' + index + '">ZIP</button></div></div>';
@@ -815,6 +864,15 @@ class SamsonApp {
     results.querySelectorAll('[data-dashboard-view]').forEach(function(button) { button.onclick = function() { this._viewDashboardReport(this._dashboardReports[Number(button.dataset.dashboardView)]); }.bind(this); }.bind(this));
     results.querySelectorAll('[data-dashboard-pdf]').forEach(function(button) { button.onclick = function() { this._downloadDashboardReport(this._dashboardReports[Number(button.dataset.dashboardPdf)], 'report'); }.bind(this); }.bind(this));
     results.querySelectorAll('[data-dashboard-zip]').forEach(function(button) { button.onclick = function() { this._downloadDashboardReport(this._dashboardReports[Number(button.dataset.dashboardZip)], 'zip'); }.bind(this); }.bind(this));
+    if (document.getElementById('deleteSelectedReports')) document.getElementById('deleteSelectedReports').onclick = function() { this._deleteSelectedReports(); }.bind(this);
+  }
+
+  _deleteSelectedReports() {
+    var checked = Array.from(document.querySelectorAll('[data-report-id]:checked')).map(function(input) { return input.dataset.reportId; });
+    if (!checked.length) { this._showToast(I18n.lang === 'zh' ? '请先选择要删除的报告' : 'Select reports to delete', 'error'); return; }
+    this._confirmDanger(I18n.lang === 'zh' ? '删除报告' : 'Delete Reports', I18n.lang === 'zh' ? '将永久删除选中的 ' + checked.length + ' 份报告及照片，无法恢复。' : 'This will permanently delete ' + checked.length + ' reports and photos. This cannot be undone.', function() {
+      fetch('api/reports/bulk-delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: checked, actor: this.currentUser.displayName, role: this.currentUser.role }) }).then(function(res) { return res.json(); }).then(function() { this._queryDashboardReports(); this._loadAdminSummary(); }.bind(this)).catch(function() { this._showToast(I18n.lang === 'zh' ? '删除失败' : 'Delete failed', 'error'); }.bind(this));
+    }.bind(this));
   }
 
   _viewDashboardReport(report) {

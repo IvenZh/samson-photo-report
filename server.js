@@ -167,6 +167,24 @@ app.get('/api/reports/:id/files/:filename', (req, res) => {
   res.download(filePath, filename);
 });
 
+app.post('/api/reports/bulk-delete', (req, res) => {
+  var requested = Array.isArray(req.body && req.body.ids) ? req.body.ids : [];
+  var deleted = [];
+  requested.forEach(function(id) {
+    var reportId = safeName(id, '');
+    if (!reportId) return;
+    var dir = reportDirectory(reportId);
+    var zip = path.join(REPORTS_DIR, `${reportId}.zip`);
+    try {
+      if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+      if (fs.existsSync(zip)) fs.rmSync(zip, { force: true });
+      deleted.push(reportId);
+    } catch (e) {}
+  });
+  appendAudit({ action: 'reports_deleted', actor: req.body && req.body.actor, role: req.body && req.body.role, reports: deleted });
+  res.json({ deleted: deleted });
+});
+
 app.get('/api/dashboard/reports', (req, res) => {
   const date = String(req.query.date || '').trim();
   const operator = String(req.query.operator || '').trim().toLowerCase();

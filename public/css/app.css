@@ -643,6 +643,10 @@ input, select, button { -webkit-appearance: none; appearance: none; }
   border-bottom: 1px solid var(--gray-100);
 }
 .dashboard-report-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dashboard-bulk-actions { display: flex; justify-content: flex-end; margin-bottom: 8px; }
+.btn-danger { background: var(--red); color: #fff; }
+.dashboard-check { display: flex; align-items: center; }
+.dashboard-check input { width: 16px; height: 16px; accent-color: var(--red); }
 .dashboard-report-main strong { color: var(--gray-800); font-size: .84rem; }
 .dashboard-report-main small { color: var(--gray-400); font-size: .7rem; line-height: 1.4; }
 .audit-log-row { display: flex; flex-direction: column; gap: 3px; padding: 9px 0; border-bottom: 1px solid var(--gray-100); }
@@ -651,6 +655,7 @@ input, select, button { -webkit-appearance: none; appearance: none; }
 .audit-log-row small { color: var(--gray-400); font-size: .68rem; }
 .user-role-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .user-role-controls label { display: flex; align-items: center; gap: 5px; color: var(--gray-600); font-size: .74rem; }
+.user-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
 .admin-summary { display: flex; flex-direction: column; gap: 12px; }
 .admin-summary-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .admin-card { padding: 14px; background: #fff; border: 1px solid var(--gray-200); border-radius: var(--radius); display: flex; flex-direction: column; gap: 4px; }
