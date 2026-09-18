@@ -711,21 +711,32 @@ class SamsonApp {
     var zh = I18n.lang === 'zh';
     root.innerHTML = '<p class="dashboard-loading">Loading…</p>';
     try {
+      var days = this._adminSummaryRange || 7;
       var summary = await fetch('api/admin/dashboard/summary').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
       var workload = await fetch('api/admin/dashboard/operator-workload').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
       var activity = await fetch('api/admin/dashboard/recent-activity').then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
-      var html = '<div class="admin-summary-cards">' +
+      var trends = await fetch('api/admin/dashboard/trends?days=' + days).then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
+      var actions = await fetch('api/admin/dashboard/activity-summary?days=' + days).then(function(res) { if (!res.ok) throw new Error(); return res.json(); });
+      var maxTrend = Math.max.apply(null, trends.map(function(item) { return item.reports; }).concat([1]));
+      var maxWorkload = Math.max.apply(null, workload.map(function(item) { return item.reports; }).concat([1]));
+      var maxAction = Math.max.apply(null, actions.map(function(item) { return item.count; }).concat([1]));
+      var html = '<div class="admin-overview-toolbar"><select id="adminOverviewRange"><option value="7"' + (days === 7 ? ' selected' : '') + '>7 days</option><option value="30"' + (days === 30 ? ' selected' : '') + '>30 days</option></select></div>';
+      html += '<div class="admin-summary-cards">' +
         '<div class="admin-card"><strong>' + summary.totalReports + '</strong><span>' + (zh ? '总报告' : 'Total Reports') + '</span></div>' +
         '<div class="admin-card"><strong>' + summary.todayReports + '</strong><span>' + (zh ? '今日报告' : 'Today') + '</span></div>' +
         '<div class="admin-card"><strong>' + summary.totalSessions + '</strong><span>' + (zh ? 'Session 数' : 'Sessions') + '</span></div>' +
         '<div class="admin-card"><strong>' + summary.totalOperators + '</strong><span>' + (zh ? 'Operator 数' : 'Operators') + '</span></div></div>';
-      if (workload.length) {
-        html += '<div class="admin-summary-workload"><h4>' + (zh ? 'Operator 工作量' : 'Operator Workload') + '</h4>' + workload.slice(0, 6).map(function(item) { return '<div class="admin-workload-row"><span>' + this._esc(item.operator) + '</span><strong>' + item.reports + ' ' + (zh ? '份报告' : 'reports') + '</strong></div>'; }.bind(this)).join('') + '</div>';
-      }
+      html += '<div class="admin-chart-grid"><div class="admin-chart"><h4>' + (zh ? '报告趋势' : 'Report Trend') + '</h4><div class="mini-bar-chart">' + trends.map(function(item) { return '<div class="mini-bar-item"><span>' + item.reports + '</span><i style="height:' + Math.round((item.reports / maxTrend) * 100) + '%"></i><small>' + item.date.slice(5) + '</small></div>'; }).join('') + '</div></div>';
+      html += '<div class="admin-chart"><h4>' + (zh ? 'Operator 工作量' : 'Operator Workload') + '</h4><div class="admin-hbar-list">' + workload.slice(0, 8).map(function(item) { return '<div class="admin-hbar-row"><strong>' + this._esc(item.operator) + '</strong><div class="admin-hbar-track"><i style="width:' + Math.round((item.reports / maxWorkload) * 100) + '%"></i></div><span>' + item.reports + '</span></div>'; }.bind(this)).join('') + '</div></div></div>';
+      html += '<div class="admin-chart-grid"><div class="admin-chart"><h4>' + (zh ? '动作分布' : 'Action Distribution') + '</h4><div class="mini-bar-chart horizontal">' + actions.slice(0, 8).map(function(item) { return '<div class="mini-bar-item"><span>' + item.count + '</span><i style="width:' + Math.round((item.count / maxAction) * 100) + '%"></i><small>' + this._esc(item.action) + '</small></div>'; }.bind(this)).join('') + '</div></div></div>';
       if (activity.length) {
         html += '<div class="admin-summary-activity"><h4>' + (zh ? '最近活动' : 'Recent Activity') + '</h4>' + activity.slice(0, 8).map(function(item) { return '<div class="admin-activity-row"><strong>' + this._esc(item.actor || '-') + '</strong><span>' + this._esc(item.action || '-') + '</span></div>'; }.bind(this)).join('') + '</div>';
       }
       root.innerHTML = html;
+      document.getElementById('adminOverviewRange').onchange = function() {
+        this._adminSummaryRange = Number(document.getElementById('adminOverviewRange').value);
+        this._loadAdminSummary();
+      }.bind(this);
     } catch (e) {
       root.innerHTML = '<p style="color:red;">' + (zh ? '无法加载驾驶舱数据' : 'Unable to load dashboard') + '</p>';
     }

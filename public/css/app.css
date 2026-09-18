@@ -662,6 +662,25 @@ input, select, button { -webkit-appearance: none; appearance: none; }
 .admin-activity-row { align-items: center; }
 .admin-activity-row strong { color: var(--gray-800); }
 .admin-activity-row span { color: var(--gray-400); }
+.admin-overview-toolbar { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.admin-overview-toolbar select { padding: 7px 9px; border: 1px solid var(--gray-200); border-radius: 6px; background: #fff; }
+.admin-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+.admin-chart { padding: 12px; background: #fff; border: 1px solid var(--gray-200); border-radius: var(--radius); }
+.admin-chart h4 { color: var(--blue); font-size: .82rem; margin-bottom: 10px; }
+.mini-bar-chart { display: flex; align-items: end; gap: 5px; height: 120px; }
+.mini-bar-item { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: end; height: 100%; }
+.mini-bar-item i { display: block; width: 70%; min-height: 2px; background: var(--blue); border-radius: 3px 3px 0 0; }
+.mini-bar-item span { color: var(--gray-600); font-size: .68rem; }
+.mini-bar-item small { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--gray-400); font-size: .62rem; }
+.mini-bar-chart.horizontal { flex-direction: column; align-items: stretch; justify-content: flex-start; height: auto; gap: 7px; }
+.mini-bar-chart.horizontal .mini-bar-item { flex-direction: row; justify-content: flex-start; height: auto; gap: 6px; }
+.mini-bar-chart.horizontal .mini-bar-item i { width: 70%; height: 12px; border-radius: 3px; }
+.admin-hbar-list { display: flex; flex-direction: column; gap: 8px; }
+.admin-hbar-row { display: grid; grid-template-columns: 78px minmax(0,1fr) 28px; align-items: center; gap: 7px; }
+.admin-hbar-row strong { color: var(--gray-700); font-size: .7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-hbar-track { height: 10px; background: var(--gray-100); border-radius: 5px; overflow: hidden; }
+.admin-hbar-track i { display: block; height: 100%; background: var(--blue-light); }
+.admin-hbar-row span { color: var(--gray-500); font-size: .7rem; }
 .audit-panel {
   position: fixed;
   inset: 0;

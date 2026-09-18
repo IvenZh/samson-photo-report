@@ -253,6 +253,35 @@ app.get('/api/admin/dashboard/recent-activity', (req, res) => {
   res.json(lines.slice(-20).reverse());
 });
 
+app.get('/api/admin/dashboard/trends', (req, res) => {
+  var days = Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
+  var reports = readReports();
+  var today = new Date();
+  var result = [];
+  for (var i = days - 1; i >= 0; i--) {
+    var date = new Date(today);
+    date.setDate(today.getDate() - i);
+    var key = date.toISOString().slice(0, 10);
+    result.push({ date: key, reports: reports.filter(function(report) { return String(report.createdAt).slice(0, 10) === key; }).length });
+  }
+  res.json(result);
+});
+
+app.get('/api/admin/dashboard/activity-summary', (req, res) => {
+  var days = Math.min(Math.max(Number(req.query.days) || 7, 1), 30);
+  if (!fs.existsSync(AUDIT_LOG_FILE)) return res.json([]);
+  var now = Date.now();
+  var counts = {};
+  fs.readFileSync(AUDIT_LOG_FILE, 'utf8').trim().split('\n').filter(Boolean).forEach(function(line) {
+    try {
+      var item = JSON.parse(line);
+      if (now - new Date(item.timestamp).getTime() > days * 86400000) return;
+      counts[item.action] = (counts[item.action] || 0) + 1;
+    } catch (e) {}
+  });
+  res.json(Object.keys(counts).map(function(action) { return { action: action, count: counts[action] }; }).sort(function(a, b) { return b.count - a.count; }));
+});
+
 app.post('/api/sessions/package', async (req, res) => {
   const sessionId = safeName((req.body && req.body.sessionId) || '', uuidv4());
   const requested = Array.isArray(req.body && req.body.reports) ? req.body.reports : [];
