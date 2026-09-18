@@ -739,11 +739,13 @@ class SamsonApp {
 
   _adminUsersHtml() {
     var zh = I18n.lang === 'zh';
-    var html = '<div class="role-panel"><div class="user-toolbar"><h3>' + (zh ? '用户与角色管理' : 'Users & Roles') + '</h3><button class="btn btn-sm btn-primary" id="addUserBtn">+ ' + (zh ? '增加账户' : 'Add User') + '</button></div>';
+    var html = '<div class="role-panel"><div class="user-toolbar"><div><h3>' + (zh ? '用户与角色管理' : 'Users & Roles') + '</h3><p class="user-toolbar-note">' + (zh ? '管理登录账号、角色和启用状态' : 'Manage login accounts, roles and access') + '</p></div><button class="btn btn-sm btn-primary" id="addUserBtn">+ ' + (zh ? '增加账户' : 'Add User') + '</button></div>';
+    html += '<div class="user-table"><div class="user-table-head"><span>' + (zh ? '用户名' : 'User') + '</span><span>' + (zh ? '角色' : 'Role') + '</span><span>' + (zh ? '状态' : 'Status') + '</span><span>' + (zh ? '密码' : 'Password') + '</span><span></span></div>';
     this.localUsers.forEach(function(item) {
       var enabled = item.enabled !== false;
-      html += '<div class="user-role-row"><strong>' + this._esc(item.username) + '</strong><div class="user-role-controls"><button class="btn btn-sm ' + (enabled ? 'btn-outline' : 'btn-primary') + '" data-user-toggle="' + item.username + '">' + (enabled ? 'Disable' : 'Enable') + '</button><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select><button class="btn btn-sm btn-outline" data-user-password="' + item.username + '">' + (zh ? '改密' : 'Password') + '</button><button class="btn btn-sm btn-ghost" data-delete-user="' + item.username + '">✕</button></div></div>';
+      html += '<div class="user-role-row"><strong class="user-name">' + this._esc(item.username) + '</strong><select data-user-role="' + item.username + '"><option value="operator"' + (item.role === 'operator' ? ' selected' : '') + '>Operator</option><option value="supervisor"' + (item.role === 'supervisor' ? ' selected' : '') + '>Supervisor</option><option value="admin"' + (item.role === 'admin' ? ' selected' : '') + '>Admin</option></select><button class="btn btn-sm user-status-toggle ' + (enabled ? 'is-enabled' : 'is-disabled') + '" data-user-toggle="' + item.username + '">' + (enabled ? 'Disable' : 'Enable') + '</button><button class="btn btn-sm btn-outline" data-user-password="' + item.username + '">' + (zh ? '改密' : 'Password') + '</button><button class="btn btn-sm btn-ghost user-delete-btn" data-delete-user="' + item.username + '">' + (zh ? '删除' : 'Delete') + '</button></div>';
     }.bind(this));
+    html += '</div>';
     html += '<div class="retention-policy"><h3>30 ' + (zh ? '天数据保留策略' : 'Day Retention Policy') + '</h3><p class="role-note">' + (zh ? '报告、照片、PDF 和 ZIP 从生成之日起保留 30 个自然日，到期后服务器自动彻底删除，不提供恢复。' : 'Reports, photos, PDF and ZIP are kept for 30 calendar days, then permanently deleted by the server.') + '</p></div></div>';
     return html;
   }
